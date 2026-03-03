@@ -1,0 +1,4 @@
+/home/hello/pml/mycalib/build/CMakeFiles/stereo_core.dir
+/home/hello/pml/mycalib/build/CMakeFiles/run_stereo_calib.dir
+/home/hello/pml/mycalib/build/CMakeFiles/edit_cache.dir
+/home/hello/pml/mycalib/build/CMakeFiles/rebuild_cache.dir
