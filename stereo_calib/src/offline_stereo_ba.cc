@@ -551,11 +551,12 @@ size_t OfflineStereoBA::CollectLeftLeftCorrespondences(int frame_a, int frame_b,
   return pts_a.size();
 }
 
-bool OfflineStereoBA::InitializeFrameRotations()
+bool OfflineStereoBA::InitializeFrameRotations(std::vector<int>& registration_order)
 {
   if (frames_.empty()) {
     return false;
   }
+  registration_order.clear();
 
   const cv::Mat K = input_.init_camera.left.K();
   const cv::Mat dist = input_.init_camera.left.dist();
@@ -584,6 +585,7 @@ bool OfflineStereoBA::InitializeFrameRotations()
   frames_[start_frame].initialized = true;
   frames_[start_frame].rvec.assign(3, 0.0);
   fixed_frame_idx_ = start_frame;
+  registration_order.push_back(start_frame);
 
   size_t registered = 1;
   std::vector<cv::Point2f> pts_from;
@@ -618,6 +620,7 @@ bool OfflineStereoBA::InitializeFrameRotations()
         if (!frames_[i].initialized) {
           frames_[i].initialized = true;
           frames_[i].rvec.assign(3, 0.0);
+          registration_order.push_back(static_cast<int>(i));
           registered++;
         }
       }
@@ -630,6 +633,7 @@ bool OfflineStereoBA::InitializeFrameRotations()
     if (!EstimatePureRotation(pts_from, pts_to, K, dist, R_rel)) {
       frames_[best_to].initialized = true;
       frames_[best_to].rvec = frames_[best_from].rvec;
+      registration_order.push_back(best_to);
       registered++;
       continue;
     }
@@ -645,6 +649,7 @@ bool OfflineStereoBA::InitializeFrameRotations()
         rvec_to.at<double>(2, 0),
     };
     frames_[best_to].initialized = true;
+    registration_order.push_back(best_to);
     registered++;
   }
 
@@ -758,37 +763,69 @@ bool OfflineStereoBA::InitializeTrackPoints()
   return true;
 }
 
-void OfflineStereoBA::BuildProblem()
+bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames,
+                                          int max_num_iterations,
+                                          ceres::Solver::Summary& summary,
+                                          double& init_rmse,
+                                          double& final_rmse)
 {
+  ceres::Problem problem;
+  size_t active_residuals = 0;
+
   for (size_t ti = 0; ti < tracks_.size(); ++ti) {
     const Track& track = tracks_[ti];
+
+    int active_obs = 0;
     for (size_t oi = 0; oi < track.observations.size(); ++oi) {
       const TrackObservation& obs = track.observations[oi];
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) {
         continue;
       }
+      if (obs.frame_idx >= static_cast<int>(active_frames.size()) || !active_frames[obs.frame_idx]) {
+        continue;
+      }
+      active_obs++;
+    }
+
+    if (active_obs < 2) {
+      continue;
+    }
+
+    for (size_t oi = 0; oi < track.observations.size(); ++oi) {
+      const TrackObservation& obs = track.observations[oi];
+      if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) {
+        continue;
+      }
+      if (obs.frame_idx >= static_cast<int>(active_frames.size()) || !active_frames[obs.frame_idx]) {
+        continue;
+      }
 
       ceres::CostFunction* cost = TrackReprojFactor::Create(obs.px, obs.is_left);
       ceres::LossFunction* loss = new ceres::HuberLoss(options_.huber_delta);
-      problem_.AddResidualBlock(cost,
-                                loss,
-                                intrinsics_left_.data(),
-                                intrinsics_right_.data(),
-                                extrinsics_.data(),
-                                frames_[obs.frame_idx].rvec.data(),
-                                tracks_[ti].point3d.data());
+      problem.AddResidualBlock(cost,
+                               loss,
+                               intrinsics_left_.data(),
+                               intrinsics_right_.data(),
+                               extrinsics_.data(),
+                               frames_[obs.frame_idx].rvec.data(),
+                               tracks_[ti].point3d.data());
+      active_residuals++;
     }
+  }
+
+  if (active_residuals == 0) {
+    return false;
   }
 
   if (options_.baseline_prior_weight > 0.0) {
     ceres::CostFunction* prior_cost = BaselinePriorFactor::Create(init_extrinsics_, options_.baseline_prior_weight);
-    problem_.AddResidualBlock(prior_cost, NULL, extrinsics_.data());
+    problem.AddResidualBlock(prior_cost, NULL, extrinsics_.data());
   }
   if (options_.aspect_ratio_prior_weight > 0.0) {
     ceres::CostFunction* aspect_left = AspectRatioPriorFactor::Create(options_.aspect_ratio_prior_weight);
     ceres::CostFunction* aspect_right = AspectRatioPriorFactor::Create(options_.aspect_ratio_prior_weight);
-    problem_.AddResidualBlock(aspect_left, NULL, intrinsics_left_.data());
-    problem_.AddResidualBlock(aspect_right, NULL, intrinsics_right_.data());
+    problem.AddResidualBlock(aspect_left, NULL, intrinsics_left_.data());
+    problem.AddResidualBlock(aspect_right, NULL, intrinsics_right_.data());
   }
 
   std::vector<int> fixed_intrinsic_indices;
@@ -803,47 +840,58 @@ void OfflineStereoBA::BuildProblem()
   }
 
   auto set_intrinsics_bounds = [&](double* intr, const Intrinsics& init_intr) {
-    problem_.SetParameterLowerBound(intr, 0, 0.5 * init_intr.fx);
-    problem_.SetParameterUpperBound(intr, 0, 1.5 * init_intr.fx);
-    problem_.SetParameterLowerBound(intr, 1, 0.5 * init_intr.fy);
-    problem_.SetParameterUpperBound(intr, 1, 1.5 * init_intr.fy);
-    problem_.SetParameterLowerBound(intr, 4, -1.0);
-    problem_.SetParameterUpperBound(intr, 4, 1.0);
-    problem_.SetParameterLowerBound(intr, 5, -1.0);
-    problem_.SetParameterUpperBound(intr, 5, 1.0);
-    problem_.SetParameterLowerBound(intr, 6, -0.2);
-    problem_.SetParameterUpperBound(intr, 6, 0.2);
-    problem_.SetParameterLowerBound(intr, 7, -0.2);
-    problem_.SetParameterUpperBound(intr, 7, 0.2);
-    problem_.SetParameterLowerBound(intr, 8, -1.0);
-    problem_.SetParameterUpperBound(intr, 8, 1.0);
+    problem.SetParameterLowerBound(intr, 0, 0.5 * init_intr.fx);
+    problem.SetParameterUpperBound(intr, 0, 1.5 * init_intr.fx);
+    problem.SetParameterLowerBound(intr, 1, 0.5 * init_intr.fy);
+    problem.SetParameterUpperBound(intr, 1, 1.5 * init_intr.fy);
+    problem.SetParameterLowerBound(intr, 4, -1.0);
+    problem.SetParameterUpperBound(intr, 4, 1.0);
+    problem.SetParameterLowerBound(intr, 5, -1.0);
+    problem.SetParameterUpperBound(intr, 5, 1.0);
+    problem.SetParameterLowerBound(intr, 6, -0.2);
+    problem.SetParameterUpperBound(intr, 6, 0.2);
+    problem.SetParameterLowerBound(intr, 7, -0.2);
+    problem.SetParameterUpperBound(intr, 7, 0.2);
+    problem.SetParameterLowerBound(intr, 8, -1.0);
+    problem.SetParameterUpperBound(intr, 8, 1.0);
   };
 
-  if (problem_.HasParameterBlock(intrinsics_left_.data())) {
-    problem_.SetManifold(intrinsics_left_.data(), new ceres::SubsetManifold(9, fixed_intrinsic_indices));
+  if (problem.HasParameterBlock(intrinsics_left_.data())) {
+    problem.SetManifold(intrinsics_left_.data(), new ceres::SubsetManifold(9, fixed_intrinsic_indices));
     set_intrinsics_bounds(intrinsics_left_.data(), input_.init_camera.left);
   }
-  if (problem_.HasParameterBlock(intrinsics_right_.data())) {
-    problem_.SetManifold(intrinsics_right_.data(), new ceres::SubsetManifold(9, fixed_intrinsic_indices));
+  if (problem.HasParameterBlock(intrinsics_right_.data())) {
+    problem.SetManifold(intrinsics_right_.data(), new ceres::SubsetManifold(9, fixed_intrinsic_indices));
     set_intrinsics_bounds(intrinsics_right_.data(), input_.init_camera.right);
   }
-  if (!frames_.empty() && fixed_frame_idx_ >= 0 &&
-      fixed_frame_idx_ < static_cast<int>(frames_.size()) &&
-      problem_.HasParameterBlock(frames_[fixed_frame_idx_].rvec.data())) {
-    problem_.SetParameterBlockConstant(frames_[fixed_frame_idx_].rvec.data());
-  }
-}
-
-void OfflineStereoBA::ComputeReprojErrors()
-{
-  if (summary_.num_residuals <= 0) {
-    init_reproj_error_ = 0.0;
-    final_reproj_error_ = 0.0;
-    return;
+  for (size_t fi = 0; fi < frames_.size(); ++fi) {
+    if (!problem.HasParameterBlock(frames_[fi].rvec.data())) {
+      continue;
+    }
+    if (static_cast<int>(fi) == fixed_frame_idx_ ||
+        fi >= active_frames.size() ||
+        !active_frames[fi]) {
+      problem.SetParameterBlockConstant(frames_[fi].rvec.data());
+    }
   }
 
-  init_reproj_error_ = std::sqrt(2.0 * summary_.initial_cost / summary_.num_residuals);
-  final_reproj_error_ = std::sqrt(2.0 * summary_.final_cost / summary_.num_residuals);
+  ceres::Solver::Options options;
+  options.max_num_iterations = std::max(1, max_num_iterations);
+  options.linear_solver_type = ceres::SPARSE_SCHUR;
+  options.num_threads = 4;
+  options.minimizer_progress_to_stdout = true;
+
+  ceres::Solve(options, &problem, &summary);
+
+  if (summary.num_residuals <= 0) {
+    init_rmse = 0.0;
+    final_rmse = 0.0;
+  } else {
+    init_rmse = std::sqrt(2.0 * summary.initial_cost / summary.num_residuals);
+    final_rmse = std::sqrt(2.0 * summary.final_cost / summary.num_residuals);
+  }
+
+  return true;
 }
 
 void OfflineStereoBA::ApplyResult(StereoCamera& result)
@@ -859,7 +907,8 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     return false;
   }
 
-  if (!InitializeFrameRotations()) {
+  std::vector<int> registration_order;
+  if (!InitializeFrameRotations(registration_order)) {
     return false;
   }
 
@@ -867,16 +916,75 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     return false;
   }
 
-  BuildProblem();
+  if (registration_order.empty()) {
+    return false;
+  }
 
-  ceres::Solver::Options options;
-  options.max_num_iterations = options_.max_iter;
-  options.linear_solver_type = ceres::SPARSE_SCHUR;
-  options.num_threads = 4;
-  options.minimizer_progress_to_stdout = true;
+  std::vector<char> active_frames(frames_.size(), 0);
+  active_frames[registration_order[0]] = 1;
 
-  ceres::Solve(options, &problem_, &summary_);
-  ComputeReprojErrors();
+  bool have_rmse = false;
+  int successful_registrations = 0;
+
+  for (size_t i = 1; i < registration_order.size(); ++i) {
+    const int frame_idx = registration_order[i];
+    if (frame_idx < 0 || frame_idx >= static_cast<int>(active_frames.size())) {
+      continue;
+    }
+    active_frames[frame_idx] = 1;
+    successful_registrations++;
+
+    ceres::Solver::Summary incremental_summary;
+    double step_init_rmse = 0.0;
+    double step_final_rmse = 0.0;
+    if (RunBundleAdjustment(active_frames,
+                            options_.incremental_max_iter,
+                            incremental_summary,
+                            step_init_rmse,
+                            step_final_rmse)) {
+      if (!have_rmse) {
+        init_reproj_error_ = step_init_rmse;
+        have_rmse = true;
+      }
+      final_reproj_error_ = step_final_rmse;
+      std::cout << "[Incremental BA] registered_frames=" << (i + 1)
+                << "/" << registration_order.size()
+                << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                << step_final_rmse << " px" << std::endl;
+    }
+
+    if (options_.global_opt_interval > 0 &&
+        successful_registrations % options_.global_opt_interval == 0) {
+      ceres::Solver::Summary periodic_summary;
+      double global_init_rmse = 0.0;
+      double global_final_rmse = 0.0;
+      if (RunBundleAdjustment(active_frames,
+                              options_.max_iter,
+                              periodic_summary,
+                              global_init_rmse,
+                              global_final_rmse)) {
+        if (!have_rmse) {
+          init_reproj_error_ = global_init_rmse;
+          have_rmse = true;
+        }
+        final_reproj_error_ = global_final_rmse;
+        std::cout << "[Global BA] registered_frames=" << (i + 1)
+                  << "/" << registration_order.size()
+                  << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                  << global_final_rmse << " px" << std::endl;
+      }
+    }
+  }
+
+  // Final global optimization using all frames.
+  std::fill(active_frames.begin(), active_frames.end(), 1);
+  if (!RunBundleAdjustment(active_frames,
+                           options_.max_iter,
+                           summary_,
+                           init_reproj_error_,
+                           final_reproj_error_)) {
+    return false;
+  }
 
   std::cout << summary_.BriefReport() << std::endl;
   std::cout << "Tracks=" << num_tracks_ << ", observations=" << num_observations_ << ", frames=" << frames_.size()

@@ -32,6 +32,8 @@ class OfflineStereoBA {
  public:
   struct Options {
     int max_iter = 200;
+    int incremental_max_iter = 20;
+    int global_opt_interval = 5;
     int min_track_len = 3;
     double huber_delta = 1.0;
     double max_match_score = 1.0;
@@ -96,15 +98,18 @@ class OfflineStereoBA {
 
   bool BuildTracks();
   bool ParseImageName(const std::string& image_name, bool& is_left, std::string& frame_id) const;
-  bool InitializeFrameRotations();
+  bool InitializeFrameRotations(std::vector<int>& registration_order);
   bool InitializeTrackPoints();
   size_t CollectLeftLeftCorrespondences(int frame_a, int frame_b,
                                         std::vector<cv::Point2f>& pts_a,
                                         std::vector<cv::Point2f>& pts_b) const;
 
-  void BuildProblem();
+  bool RunBundleAdjustment(const std::vector<char>& active_frames,
+                           int max_num_iterations,
+                           ceres::Solver::Summary& summary,
+                           double& init_rmse,
+                           double& final_rmse);
   void ApplyResult(StereoCamera& result);
-  void ComputeReprojErrors();
 
  private:
   OfflineBAInput input_;
@@ -120,7 +125,6 @@ class OfflineStereoBA {
   std::vector<double> extrinsics_;
   std::vector<double> init_extrinsics_;
 
-  ceres::Problem problem_;
   ceres::Solver::Summary summary_;
 
   size_t num_tracks_ = 0;

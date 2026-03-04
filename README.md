@@ -318,6 +318,8 @@ build/bin/run_offline_stereo_ba \
     --output stereo_calib/result/offline_ba_result.json \
     --gt_param_file stereo_calib/scripts/camera_params.json \
     --max_iter 40 \
+    --incremental_max_iter 10 \
+    --global_opt_interval 5 \
     --max_score 0.2 \
     --min_pair_inliers 15 \
     --min_pair_inlier_ratio 0.5 \
@@ -325,7 +327,11 @@ build/bin/run_offline_stereo_ba \
     --fix_distortion
 ```
 
-该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），再执行带鲁棒核的全局 BA。
+该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），然后按帧增量注册并执行 BA：
+
+1. 逐帧加入新图像后做一次增量 BA（`--incremental_max_iter` 控制迭代次数）  
+2. 每完成 `--global_opt_interval` 次注册后做一次全局 BA  
+3. 最后再做一次全量全局 BA 输出结果
 
 > 程序会始终从 `stereo_calib/example_init_params.txt` 读取初始内外参。  
 > `--init_param_file` / `--use_input_init` / `--init_width` / `--init_height` / `--init_focal` / `--init_baseline` 已弃用并忽略。  

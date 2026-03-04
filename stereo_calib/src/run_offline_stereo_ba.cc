@@ -408,6 +408,10 @@ int main(int argc, char** argv)
       std::cout << "Warning: --init_baseline is deprecated and ignored." << std::endl;
     } else if (arg == "--max_iter" && i + 1 < argc) {
       options.max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--incremental_max_iter" && i + 1 < argc) {
+      options.incremental_max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--global_opt_interval" && i + 1 < argc) {
+      options.global_opt_interval = std::stoi(argv[++i]);
     } else if (arg == "--min_track_len" && i + 1 < argc) {
       options.min_track_len = std::stoi(argv[++i]);
     } else if (arg == "--huber" && i + 1 < argc) {
@@ -438,7 +442,8 @@ int main(int argc, char** argv)
   if (input_path.empty() || output_path.empty()) {
     std::cerr << "Usage: run_offline_stereo_ba --input <matches.json> --output <result.json> "
               << "[--gt_param_file gt_params.{txt|json}] "
-              << "[--max_iter 200] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
+              << "[--max_iter 200] [--incremental_max_iter 20] [--global_opt_interval 5] "
+              << "[--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
               << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
               << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
               << "[--baseline_prior 10.0] [--max_reproj_error 20.0]\n"
