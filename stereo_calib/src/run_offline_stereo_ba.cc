@@ -3,7 +3,10 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <iomanip>
+#include <map>
 #include <limits>
 
 #include <nlohmann/json.hpp>
@@ -117,45 +120,251 @@ std::vector<RawImagePair> PairsFromJson(const json& j)
   return pairs;
 }
 
-bool InferImageSizeFromPairs(const std::vector<RawImagePair>& pairs, int& width, int& height)
+std::string Trim(const std::string& s)
 {
-  float max_x = 0.0f;
-  float max_y = 0.0f;
-  bool has_point = false;
-
-  for (size_t i = 0; i < pairs.size(); ++i) {
-    const RawImagePair& pair = pairs[i];
-    for (size_t k = 0; k < pair.matches.size(); ++k) {
-      const RawPairMatch& m = pair.matches[k];
-      max_x = std::max(max_x, std::max(m.pt_a.x, m.pt_b.x));
-      max_y = std::max(max_y, std::max(m.pt_a.y, m.pt_b.y));
-      has_point = true;
-    }
+  size_t b = 0;
+  while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) {
+    ++b;
   }
+  size_t e = s.size();
+  while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) {
+    --e;
+  }
+  return s.substr(b, e - b);
+}
 
-  if (!has_point) {
+bool LoadInitCameraFromText(const std::string& path, StereoCamera& cam, std::string& err)
+{
+  std::ifstream fin(path.c_str());
+  if (!fin.is_open()) {
+    err = "Cannot open init param file: " + path;
     return false;
   }
 
-  width = std::max(640, static_cast<int>(std::ceil(max_x + 1.0f)));
-  height = std::max(480, static_cast<int>(std::ceil(max_y + 1.0f)));
+  std::map<std::string, std::string> kv;
+  std::string line;
+  int line_no = 0;
+  while (std::getline(fin, line)) {
+    ++line_no;
+    const std::string s = Trim(line);
+    if (s.empty() || s[0] == '#') {
+      continue;
+    }
+    const size_t eq = s.find('=');
+    if (eq == std::string::npos) {
+      err = "Invalid line " + std::to_string(line_no) + " in init param file (expect key=value).";
+      return false;
+    }
+    const std::string key = Trim(s.substr(0, eq));
+    const std::string val = Trim(s.substr(eq + 1));
+    if (key.empty() || val.empty()) {
+      err = "Invalid line " + std::to_string(line_no) + " in init param file (empty key/value).";
+      return false;
+    }
+    kv[key] = val;
+  }
+
+  auto get_double = [&](const std::string& key, double& out) -> bool {
+    const std::map<std::string, std::string>::const_iterator it = kv.find(key);
+    if (it == kv.end()) {
+      err = "Missing key in init param file: " + key;
+      return false;
+    }
+    try {
+      out = std::stod(it->second);
+    } catch (...) {
+      err = "Invalid numeric value for key: " + key;
+      return false;
+    }
+    return true;
+  };
+
+  if (!get_double("left_fx", cam.left.fx) || !get_double("left_fy", cam.left.fy) ||
+      !get_double("left_cx", cam.left.cx) || !get_double("left_cy", cam.left.cy) ||
+      !get_double("left_k1", cam.left.k1) || !get_double("left_k2", cam.left.k2) ||
+      !get_double("left_p1", cam.left.p1) || !get_double("left_p2", cam.left.p2) ||
+      !get_double("left_k3", cam.left.k3)) {
+    return false;
+  }
+
+  if (!get_double("right_fx", cam.right.fx) || !get_double("right_fy", cam.right.fy) ||
+      !get_double("right_cx", cam.right.cx) || !get_double("right_cy", cam.right.cy) ||
+      !get_double("right_k1", cam.right.k1) || !get_double("right_k2", cam.right.k2) ||
+      !get_double("right_p1", cam.right.p1) || !get_double("right_p2", cam.right.p2) ||
+      !get_double("right_k3", cam.right.k3)) {
+    return false;
+  }
+
+  double r00, r01, r02, r10, r11, r12, r20, r21, r22;
+  if (!get_double("R00", r00) || !get_double("R01", r01) || !get_double("R02", r02) ||
+      !get_double("R10", r10) || !get_double("R11", r11) || !get_double("R12", r12) ||
+      !get_double("R20", r20) || !get_double("R21", r21) || !get_double("R22", r22)) {
+    return false;
+  }
+  cam.extrinsics.R = (cv::Mat_<double>(3, 3) << r00, r01, r02, r10, r11, r12, r20, r21, r22);
+
+  double tx, ty, tz;
+  if (!get_double("tx", tx) || !get_double("ty", ty) || !get_double("tz", tz)) {
+    return false;
+  }
+  cam.extrinsics.t = (cv::Mat_<double>(3, 1) << tx, ty, tz);
+
   return true;
 }
 
-StereoCamera BuildFixedInitCamera(int width, int height, double focal, double baseline)
+bool LoadCameraFromJsonFile(const std::string& path, StereoCamera& cam, std::string& err)
 {
-  StereoCamera cam;
-  cam.left.fx = focal;
-  cam.left.fy = focal;
-  cam.left.cx = width * 0.5;
-  cam.left.cy = height * 0.5;
-  cam.left.k1 = cam.left.k2 = cam.left.p1 = cam.left.p2 = cam.left.k3 = 0.0;
+  std::ifstream fin(path.c_str());
+  if (!fin.is_open()) {
+    err = "Cannot open camera json file: " + path;
+    return false;
+  }
 
-  cam.right = cam.left;
+  json j;
+  try {
+    fin >> j;
+  } catch (...) {
+    err = "Invalid json file: " + path;
+    return false;
+  }
 
-  cam.extrinsics.R = cv::Mat::eye(3, 3, CV_64F);
-  cam.extrinsics.t = (cv::Mat_<double>(3, 1) << -baseline, 0.0, 0.0);
-  return cam;
+  if (!j.contains("left") || !j.contains("right") || !j.contains("extrinsics")) {
+    err = "Camera json must contain left/right/extrinsics: " + path;
+    return false;
+  }
+
+  try {
+    cam.left = IntrinsicsFromJson(j.at("left"));
+    cam.right = IntrinsicsFromJson(j.at("right"));
+    cam.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
+  } catch (...) {
+    err = "Failed to parse camera json fields: " + path;
+    return false;
+  }
+  return true;
+}
+
+bool LoadCameraFromFile(const std::string& path, StereoCamera& cam, std::string& err)
+{
+  const size_t dot = path.find_last_of('.');
+  const std::string ext = (dot == std::string::npos) ? "" : path.substr(dot + 1);
+  if (ext == "json") {
+    return LoadCameraFromJsonFile(path, cam, err);
+  }
+  return LoadInitCameraFromText(path, cam, err);
+}
+
+double RotationErrorDeg(const cv::Mat& R_est, const cv::Mat& R_gt)
+{
+  static const double kRad2Deg = 57.2957795130823208768;
+  cv::Mat R_diff = R_est * R_gt.t();
+  const double tr = R_diff.at<double>(0, 0) + R_diff.at<double>(1, 1) + R_diff.at<double>(2, 2);
+  double cos_theta = (tr - 1.0) * 0.5;
+  cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
+  return std::acos(cos_theta) * kRad2Deg;
+}
+
+double TranslationNorm(const cv::Mat& t)
+{
+  return std::sqrt(t.at<double>(0, 0) * t.at<double>(0, 0) +
+                   t.at<double>(1, 0) * t.at<double>(1, 0) +
+                   t.at<double>(2, 0) * t.at<double>(2, 0));
+}
+
+json IntrinsicsDiffToJson(const Intrinsics& est, const Intrinsics& gt)
+{
+  return {
+      {"fx", est.fx - gt.fx},
+      {"fy", est.fy - gt.fy},
+      {"cx", est.cx - gt.cx},
+      {"cy", est.cy - gt.cy},
+      {"k1", est.k1 - gt.k1},
+      {"k2", est.k2 - gt.k2},
+      {"p1", est.p1 - gt.p1},
+      {"p2", est.p2 - gt.p2},
+      {"k3", est.k3 - gt.k3},
+  };
+}
+
+json ExtrinsicsDiffToJson(const StereoExtrinsics& est, const StereoExtrinsics& gt)
+{
+  std::vector<double> dR(9, 0.0);
+  std::vector<double> dt(3, 0.0);
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      dR[r * 3 + c] = est.R.at<double>(r, c) - gt.R.at<double>(r, c);
+    }
+  }
+  for (int i = 0; i < 3; ++i) {
+    dt[i] = est.t.at<double>(i, 0) - gt.t.at<double>(i, 0);
+  }
+
+  const double baseline_est = TranslationNorm(est.t);
+  const double baseline_gt = TranslationNorm(gt.t);
+
+  return {
+      {"R", dR},
+      {"t", dt},
+      {"baseline", baseline_est - baseline_gt},
+      {"rotation_error_deg", RotationErrorDeg(est.R, gt.R)},
+  };
+}
+
+void PrintDiffVsGT(const StereoCamera& est, const StereoCamera& gt, const std::string& source)
+{
+  std::cout << "Comparison vs ground truth (" << source << "), delta = estimate - gt:" << std::endl;
+  std::cout << std::showpos;
+  std::cout << "  left:  fx=" << (est.left.fx - gt.left.fx)
+            << ", fy=" << (est.left.fy - gt.left.fy)
+            << ", cx=" << (est.left.cx - gt.left.cx)
+            << ", cy=" << (est.left.cy - gt.left.cy) << std::endl;
+  std::cout << "  right: fx=" << (est.right.fx - gt.right.fx)
+            << ", fy=" << (est.right.fy - gt.right.fy)
+            << ", cx=" << (est.right.cx - gt.right.cx)
+            << ", cy=" << (est.right.cy - gt.right.cy) << std::endl;
+
+  const double dtx = est.extrinsics.t.at<double>(0, 0) - gt.extrinsics.t.at<double>(0, 0);
+  const double dty = est.extrinsics.t.at<double>(1, 0) - gt.extrinsics.t.at<double>(1, 0);
+  const double dtz = est.extrinsics.t.at<double>(2, 0) - gt.extrinsics.t.at<double>(2, 0);
+  const double baseline_est = TranslationNorm(est.extrinsics.t);
+  const double baseline_gt = TranslationNorm(gt.extrinsics.t);
+  std::cout << "  extrinsics: dt=[" << dtx << ", " << dty << ", " << dtz << "]"
+            << ", d|t|=" << (baseline_est - baseline_gt)
+            << ", rot_err_deg=" << RotationErrorDeg(est.extrinsics.R, gt.extrinsics.R)
+            << std::endl;
+  std::cout << std::noshowpos;
+}
+
+void PrintInitCamera(const StereoCamera& cam)
+{
+  auto print_intr = [](const std::string& name, const Intrinsics& intr) {
+    std::cout << name << " intrinsics: "
+              << "fx=" << intr.fx << ", fy=" << intr.fy
+              << ", cx=" << intr.cx << ", cy=" << intr.cy
+              << ", k1=" << intr.k1 << ", k2=" << intr.k2
+              << ", p1=" << intr.p1 << ", p2=" << intr.p2
+              << ", k3=" << intr.k3 << std::endl;
+  };
+
+  print_intr("left", cam.left);
+  print_intr("right", cam.right);
+
+  std::vector<double> ext = cam.extrinsics.ToVector();
+  std::cout << "extrinsics (Rodrigues+t): "
+            << "rvec=[" << ext[0] << ", " << ext[1] << ", " << ext[2] << "], "
+            << "t=[" << ext[3] << ", " << ext[4] << ", " << ext[5] << "]"
+            << std::endl;
+
+  std::cout << "extrinsics R (row-major): [";
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      if (r != 0 || c != 0) {
+        std::cout << ", ";
+      }
+      std::cout << cam.extrinsics.R.at<double>(r, c);
+    }
+  }
+  std::cout << "]" << std::endl;
 }
 
 }  // namespace
@@ -164,11 +373,9 @@ int main(int argc, char** argv)
 {
   std::string input_path;
   std::string output_path;
-  bool use_input_init = false;
-  int init_width = 0;
-  int init_height = 0;
-  double init_focal = -1.0;
-  double init_baseline = 0.4;
+  std::string gt_param_file;
+  const std::string kForcedInitPathA = "stereo_calib/example_init_params.txt";
+  const std::string kForcedInitPathB = "../stereo_calib/example_init_params.txt";
 
   OfflineStereoBA::Options options;
 
@@ -178,16 +385,27 @@ int main(int argc, char** argv)
       input_path = argv[++i];
     } else if (arg == "--output" && i + 1 < argc) {
       output_path = argv[++i];
+    } else if (arg == "--init_param_file" && i + 1 < argc) {
+      ++i;
+      std::cout << "Warning: --init_param_file is deprecated and ignored. "
+                << "Always using stereo_calib/example_init_params.txt" << std::endl;
+    } else if (arg == "--gt_param_file" && i + 1 < argc) {
+      gt_param_file = argv[++i];
     } else if (arg == "--use_input_init") {
-      use_input_init = true;
+      std::cout << "Warning: --use_input_init is deprecated and ignored. "
+                << "Always using stereo_calib/example_init_params.txt" << std::endl;
     } else if (arg == "--init_width" && i + 1 < argc) {
-      init_width = std::stoi(argv[++i]);
+      ++i;
+      std::cout << "Warning: --init_width is deprecated and ignored." << std::endl;
     } else if (arg == "--init_height" && i + 1 < argc) {
-      init_height = std::stoi(argv[++i]);
+      ++i;
+      std::cout << "Warning: --init_height is deprecated and ignored." << std::endl;
     } else if (arg == "--init_focal" && i + 1 < argc) {
-      init_focal = std::stod(argv[++i]);
+      ++i;
+      std::cout << "Warning: --init_focal is deprecated and ignored." << std::endl;
     } else if (arg == "--init_baseline" && i + 1 < argc) {
-      init_baseline = std::stod(argv[++i]);
+      ++i;
+      std::cout << "Warning: --init_baseline is deprecated and ignored." << std::endl;
     } else if (arg == "--max_iter" && i + 1 < argc) {
       options.max_iter = std::stoi(argv[++i]);
     } else if (arg == "--min_track_len" && i + 1 < argc) {
@@ -205,9 +423,11 @@ int main(int argc, char** argv)
     } else if (arg == "--aspect_ratio_prior" && i + 1 < argc) {
       options.aspect_ratio_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--known_baseline" && i + 1 < argc) {
-      options.known_baseline = std::stod(argv[++i]);
+      ++i;
+      std::cout << "Warning: --known_baseline is deprecated and ignored." << std::endl;
     } else if (arg == "--known_baseline_weight" && i + 1 < argc) {
-      options.known_baseline_weight = std::stod(argv[++i]);
+      ++i;
+      std::cout << "Warning: --known_baseline_weight is deprecated and ignored." << std::endl;
     } else if (arg == "--max_reproj_error" && i + 1 < argc) {
       options.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
@@ -217,13 +437,12 @@ int main(int argc, char** argv)
 
   if (input_path.empty() || output_path.empty()) {
     std::cerr << "Usage: run_offline_stereo_ba --input <matches.json> --output <result.json> "
-              << "[--use_input_init] [--init_width 1920] [--init_height 1080] "
-              << "[--init_focal 2304] [--init_baseline 0.2] "
+              << "[--gt_param_file gt_params.{txt|json}] "
               << "[--max_iter 200] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
               << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
               << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
-              << "[--known_baseline 0.2] [--known_baseline_weight 50.0] "
-              << "[--baseline_prior 10.0] [--max_reproj_error 20.0]"
+              << "[--baseline_prior 10.0] [--max_reproj_error 20.0]\n"
+              << "Initial values are always loaded from stereo_calib/example_init_params.txt"
               << std::endl;
     return 1;
   }
@@ -247,53 +466,20 @@ int main(int argc, char** argv)
   OfflineBAInput input;
   input.pairs = PairsFromJson(j.at("pairs"));
 
-  const bool has_input_init = j.contains("left") && j.contains("right") && j.contains("extrinsics");
-  if (use_input_init && has_input_init) {
-    input.init_camera.left = IntrinsicsFromJson(j.at("left"));
-    input.init_camera.right = IntrinsicsFromJson(j.at("right"));
-    input.init_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
-    std::cout << "Init mode: use_input_init" << std::endl;
+  std::string err;
+  if (!LoadInitCameraFromText(kForcedInitPathA, input.init_camera, err)) {
+    if (!LoadInitCameraFromText(kForcedInitPathB, input.init_camera, err)) {
+      std::cerr << err << std::endl;
+      return 1;
+    }
+    std::cout << "Init mode: fixed_file (" << kForcedInitPathB << ")" << std::endl;
   } else {
-    int width = init_width;
-    int height = init_height;
-
-    if ((width <= 0 || height <= 0) && j.contains("image_size")) {
-      const json& sz = j.at("image_size");
-      width = width > 0 ? width : sz.value("width", 0);
-      height = height > 0 ? height : sz.value("height", 0);
-    }
-
-    if (width <= 0 || height <= 0) {
-      int inferred_w = 0;
-      int inferred_h = 0;
-      if (InferImageSizeFromPairs(input.pairs, inferred_w, inferred_h)) {
-        width = width > 0 ? width : inferred_w;
-        height = height > 0 ? height : inferred_h;
-      }
-    }
-
-    if (width <= 0) {
-      width = 1920;
-    }
-    if (height <= 0) {
-      height = 1080;
-    }
-
-    double focal = init_focal;
-    if (focal <= 0.0) {
-      focal = 1.2 * static_cast<double>(std::max(width, height));
-    }
-
-    input.init_camera = BuildFixedInitCamera(width, height, focal, init_baseline);
-    std::cout << "Init mode: fixed_default (fx=fy=" << focal
-              << ", cx=" << input.init_camera.left.cx
-              << ", cy=" << input.init_camera.left.cy
-              << ", baseline=" << init_baseline << ")" << std::endl;
-    if (use_input_init && !has_input_init) {
-      std::cout << "Warning: --use_input_init set but input json has no left/right/extrinsics, fallback to fixed init."
-                << std::endl;
-    }
+    std::cout << "Init mode: fixed_file (" << kForcedInitPathA << ")" << std::endl;
   }
+
+  std::cout << std::fixed << std::setprecision(10);
+  std::cout << "Initial camera parameters used by optimizer:" << std::endl;
+  PrintInitCamera(input.init_camera);
 
   std::size_t raw_matches = 0;
   for (std::size_t i = 0; i < input.pairs.size(); ++i) {
@@ -321,6 +507,35 @@ int main(int argc, char** argv)
   out["num_frames"] = optimizer.num_frames();
   out["init_reproj_error"] = optimizer.init_reproj_error();
   out["final_reproj_error"] = optimizer.final_reproj_error();
+
+  StereoCamera gt_camera;
+  bool has_gt = false;
+  std::string gt_source;
+  if (!gt_param_file.empty()) {
+    std::string err;
+    if (!LoadCameraFromFile(gt_param_file, gt_camera, err)) {
+      std::cerr << err << std::endl;
+      return 1;
+    }
+    has_gt = true;
+    gt_source = std::string("gt_param_file: ") + gt_param_file;
+  } else if (j.contains("left") && j.contains("right") && j.contains("extrinsics")) {
+    gt_camera.left = IntrinsicsFromJson(j.at("left"));
+    gt_camera.right = IntrinsicsFromJson(j.at("right"));
+    gt_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
+    has_gt = true;
+    gt_source = "input_json(left/right/extrinsics)";
+  }
+
+  if (has_gt) {
+    out["gt_source"] = gt_source;
+    out["diff_vs_gt"] = {
+        {"left", IntrinsicsDiffToJson(result_camera.left, gt_camera.left)},
+        {"right", IntrinsicsDiffToJson(result_camera.right, gt_camera.right)},
+        {"extrinsics", ExtrinsicsDiffToJson(result_camera.extrinsics, gt_camera.extrinsics)},
+    };
+    PrintDiffVsGT(result_camera, gt_camera, gt_source);
+  }
 
   std::ofstream fout(output_path.c_str());
   fout << out.dump(4) << std::endl;

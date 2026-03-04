@@ -59,8 +59,11 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o: /home/hello
   /usr/include/c++/14/bits/istream.tcc \
   /usr/include/c++/14/bits/locale_classes.h \
   /usr/include/c++/14/bits/locale_classes.tcc \
+  /usr/include/c++/14/bits/locale_conv.h \
   /usr/include/c++/14/bits/locale_facets.h \
   /usr/include/c++/14/bits/locale_facets.tcc \
+  /usr/include/c++/14/bits/locale_facets_nonio.h \
+  /usr/include/c++/14/bits/locale_facets_nonio.tcc \
   /usr/include/c++/14/bits/localefwd.h \
   /usr/include/c++/14/bits/mask_array.h \
   /usr/include/c++/14/bits/memory_resource.h \
@@ -75,6 +78,7 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o: /home/hello
   /usr/include/c++/14/bits/postypes.h \
   /usr/include/c++/14/bits/predefined_ops.h \
   /usr/include/c++/14/bits/ptr_traits.h \
+  /usr/include/c++/14/bits/quoted_string.h \
   /usr/include/c++/14/bits/range_access.h \
   /usr/include/c++/14/bits/refwrap.h \
   /usr/include/c++/14/bits/requires_hosted.h \
@@ -160,12 +164,14 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o: /home/hello
   /usr/include/c++/14/fstream \
   /usr/include/c++/14/functional \
   /usr/include/c++/14/initializer_list \
+  /usr/include/c++/14/iomanip \
   /usr/include/c++/14/ios \
   /usr/include/c++/14/iosfwd \
   /usr/include/c++/14/iostream \
   /usr/include/c++/14/istream \
   /usr/include/c++/14/iterator \
   /usr/include/c++/14/limits \
+  /usr/include/c++/14/locale \
   /usr/include/c++/14/map \
   /usr/include/c++/14/memory \
   /usr/include/c++/14/mutex \
@@ -460,6 +466,7 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o: /home/hello
   /usr/include/glog/platform.h \
   /usr/include/glog/vlog_is_on.h \
   /usr/include/inttypes.h \
+  /usr/include/libintl.h \
   /usr/include/limits.h \
   /usr/include/linux/close_range.h \
   /usr/include/linux/errno.h \
@@ -617,7 +624,9 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o: /home/hello
   /usr/include/x86_64-linux-gnu/c++/14/bits/error_constants.h \
   /usr/include/x86_64-linux-gnu/c++/14/bits/gthr-default.h \
   /usr/include/x86_64-linux-gnu/c++/14/bits/gthr.h \
+  /usr/include/x86_64-linux-gnu/c++/14/bits/messages_members.h \
   /usr/include/x86_64-linux-gnu/c++/14/bits/os_defines.h \
+  /usr/include/x86_64-linux-gnu/c++/14/bits/time_members.h \
   /usr/include/x86_64-linux-gnu/gnu/stubs-64.h \
   /usr/include/x86_64-linux-gnu/gnu/stubs.h \
   /usr/include/x86_64-linux-gnu/sys/cdefs.h \
@@ -857,6 +866,8 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/x86_64-linux-gnu/c++/14/bits/os_defines.h:
 
+/usr/include/x86_64-linux-gnu/c++/14/bits/messages_members.h:
+
 /usr/include/x86_64-linux-gnu/c++/14/bits/gthr-default.h:
 
 /usr/include/x86_64-linux-gnu/c++/14/bits/error_constants.h:
@@ -915,8 +926,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/x86_64-linux-gnu/bits/time64.h:
 
-/usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
-
 /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h:
 
 /usr/include/x86_64-linux-gnu/bits/struct_mutex.h:
@@ -943,7 +952,15 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/x86_64-linux-gnu/bits/locale.h:
 
-/usr/include/ceres/problem.h:
+/usr/include/x86_64-linux-gnu/bits/libc-header-start.h:
+
+/usr/include/x86_64-linux-gnu/bits/getopt_posix.h:
+
+/usr/include/x86_64-linux-gnu/bits/getopt_core.h:
+
+/usr/lib/gcc/x86_64-linux-gnu/14/include/mm_malloc.h:
+
+/usr/include/x86_64-linux-gnu/bits/fp-logb.h:
 
 /usr/include/ceres/numeric_diff_options.h:
 
@@ -971,13 +988,13 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/ceres/internal/memory.h:
 
-/usr/include/x86_64-linux-gnu/bits/types/__locale_t.h:
-
-/usr/include/ceres/internal/householder_vector.h:
-
 /usr/include/ceres/internal/eigen.h:
 
 /usr/include/eigen3/Eigen/src/Core/SolveTriangular.h:
+
+/usr/include/x86_64-linux-gnu/bits/thread-shared-types.h:
+
+/usr/include/libintl.h:
 
 /usr/include/ceres/internal/disable_warnings.h:
 
@@ -993,10 +1010,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/ceres/cost_function.h:
 
-/usr/include/ceres/product_manifold.h:
-
-/usr/include/eigen3/Eigen/src/Core/CoreIterators.h:
-
 /usr/include/ceres/ceres.h:
 
 /usr/include/ceres/gradient_problem_solver.h:
@@ -1010,10 +1023,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/c++/14/type_traits:
 
 /usr/include/c++/14/valarray:
-
-/usr/include/x86_64-linux-gnu/bits/types/__FILE.h:
-
-/usr/include/c++/14/tr1/poly_hermite.tcc:
 
 /lib/x86_64-linux-gnu/libcolamd.so.3:
 
@@ -1029,10 +1038,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/sstream:
 
-/usr/include/ceres/ordered_groups.h:
-
-/usr/include/c++/14/cmath:
-
 /usr/include/c++/14/bits/stl_algo.h:
 
 /usr/include/ceres/first_order_function.h:
@@ -1041,11 +1046,17 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/bits/stl_function.h:
 
-/usr/include/x86_64-linux-gnu/c++/14/bits/gthr.h:
+/usr/lib/x86_64-linux-gnu/libopencv_freetype.so.4.10.0:
 
-/usr/include/c++/14/iosfwd:
+/usr/include/ceres/autodiff_first_order_function.h:
 
-/usr/include/eigen3/Eigen/src/Core/MatrixBase.h:
+/usr/include/c++/14/iomanip:
+
+/usr/include/c++/14/bits/functional_hash.h:
+
+/usr/include/x86_64-linux-gnu/bits/unistd_ext.h:
+
+/usr/include/c++/14/limits:
 
 /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h:
 
@@ -1157,8 +1168,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/climits:
 
-/usr/include/ceres/solver.h:
-
 /usr/lib/gcc/x86_64-linux-gnu/14/include/syslimits.h:
 
 /usr/include/c++/14/cfloat:
@@ -1170,6 +1179,10 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/c++/14/bits/refwrap.h:
 
 /usr/include/c++/14/cerrno:
+
+/usr/include/c++/14/bits/vector.tcc:
+
+/usr/include/eigen3/Eigen/Cholesky:
 
 /usr/include/c++/14/bits/invoke.h:
 
@@ -1209,12 +1222,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/bits/erase_if.h:
 
-/usr/include/c++/14/bits/functional_hash.h:
-
-/usr/include/x86_64-linux-gnu/bits/unistd_ext.h:
-
-/usr/include/c++/14/limits:
-
 /usr/include/c++/14/bits/enable_special_members.h:
 
 /usr/include/c++/14/bits/std_function.h:
@@ -1247,6 +1254,18 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/bits/stl_pair.h:
 
+/usr/include/x86_64-linux-gnu/c++/14/bits/gthr.h:
+
+/usr/include/c++/14/iosfwd:
+
+/usr/include/c++/14/locale:
+
+/usr/include/eigen3/Eigen/src/Core/MatrixBase.h:
+
+/usr/include/c++/14/bits/locale_conv.h:
+
+/usr/include/ceres/dynamic_numeric_diff_cost_function.h:
+
 /usr/include/c++/14/tr1/bessel_function.tcc:
 
 /usr/include/asm-generic/posix_types.h:
@@ -1267,9 +1286,9 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /home/hello/pml/mycalib/stereo_calib/src/run_offline_stereo_ba.cc:
 
-/usr/include/c++/14/bits/stl_iterator_base_funcs.h:
-
 /usr/include/assert.h:
+
+/usr/include/c++/14/bits/stl_iterator_base_funcs.h:
 
 /usr/lib/x86_64-linux-gnu/libopencv_structured_light.so.4.10.0:
 
@@ -1303,7 +1322,11 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/eigen3/Eigen/src/Core/Ref.h:
 
+/usr/include/c++/14/cassert:
+
 /usr/include/alloca.h:
+
+/usr/include/c++/14/bits/locale_facets_nonio.tcc:
 
 /usr/include/c++/14/bits/forward_list.tcc:
 
@@ -1314,20 +1337,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/c++/14/bits/basic_string.tcc:
 
 /usr/include/c++/14/bits/stl_vector.h:
-
-/usr/include/c++/14/bits/streambuf.tcc:
-
-/usr/include/c++/14/bits/version.h:
-
-/usr/include/eigen3/Eigen/src/Eigenvalues/ComplexEigenSolver.h:
-
-/usr/include/x86_64-linux-gnu/gnu/stubs-64.h:
-
-/usr/include/eigen3/Eigen/src/Eigenvalues/EigenSolver.h:
-
-/usr/include/gflags/gflags_declare.h:
-
-/usr/include/ceres/gradient_checker.h:
 
 /usr/include/c++/14/bits/valarray_after.h:
 
@@ -1344,10 +1353,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/x86_64-linux-gnu/asm/errno.h:
 
 /usr/include/ceres/internal/port.h:
-
-/usr/lib/gcc/x86_64-linux-gnu/14/include/mm_malloc.h:
-
-/usr/include/x86_64-linux-gnu/bits/fp-logb.h:
 
 /usr/include/c++/14/bits/char_traits.h:
 
@@ -1429,13 +1434,37 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /home/hello/pml/mycalib/3rdparty/json-3.9.1/single_include/nlohmann/json.hpp:
 
-/usr/lib/x86_64-linux-gnu/libopencv_freetype.so.4.10.0:
-
-/usr/include/ceres/autodiff_first_order_function.h:
-
 /usr/include/c++/14/pstl/glue_memory_defs.h:
 
+/usr/include/c++/14/bits/streambuf.tcc:
+
+/usr/include/c++/14/bits/version.h:
+
+/usr/include/eigen3/Eigen/src/Eigenvalues/ComplexEigenSolver.h:
+
+/usr/include/x86_64-linux-gnu/gnu/stubs-64.h:
+
+/usr/include/eigen3/Eigen/src/Eigenvalues/EigenSolver.h:
+
+/usr/include/gflags/gflags_declare.h:
+
+/usr/include/ceres/gradient_checker.h:
+
+/usr/include/c++/14/bits/locale_facets_nonio.h:
+
+/usr/include/c++/14/bits/std_mutex.h:
+
+/usr/include/x86_64-linux-gnu/bits/types/__locale_t.h:
+
+/usr/include/ceres/internal/householder_vector.h:
+
+/usr/include/c++/14/bits/unique_ptr.h:
+
 /usr/include/c++/14/bits/localefwd.h:
+
+/usr/include/x86_64-linux-gnu/bits/local_lim.h:
+
+/usr/include/c++/14/bits/uses_allocator.h:
 
 /usr/include/ceres/autodiff_cost_function.h:
 
@@ -1485,6 +1514,12 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/c++/14/bits/stl_construct.h:
 
+/usr/include/x86_64-linux-gnu/bits/types/__FILE.h:
+
+/usr/include/c++/14/tr1/poly_hermite.tcc:
+
+/usr/include/c++/14/bits/quoted_string.h:
+
 /usr/include/c++/14/bits/range_access.h:
 
 /usr/include/ceres/dynamic_cost_function_to_functor.h:
@@ -1496,8 +1531,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/c++/14/bits/requires_hosted.h:
 
 /usr/include/c++/14/bits/shared_ptr_atomic.h:
-
-/usr/include/ceres/dynamic_numeric_diff_cost_function.h:
 
 /usr/include/c++/14/pstl/pstl_config.h:
 
@@ -1513,11 +1546,7 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/linux/sched/types.h:
 
-/usr/include/c++/14/bits/std_mutex.h:
-
 /usr/include/ceres/autodiff_manifold.h:
-
-/usr/include/c++/14/bits/unique_ptr.h:
 
 /usr/lib/x86_64-linux-gnu/libopencv_dpm.so.4.10.0:
 
@@ -1601,19 +1630,25 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/eigen3/Eigen/src/Core/functors/UnaryFunctors.h:
 
-/usr/include/c++/14/bits/cxxabi_init_exception.h:
-
 /usr/include/c++/14/bits/valarray_before.h:
+
+/usr/include/c++/14/bits/cxxabi_init_exception.h:
 
 /usr/include/c++/14/bits/valarray_array.h:
 
 /usr/include/opencv4/opencv2/core/bufferpool.hpp:
 
-/usr/include/c++/14/bits/vector.tcc:
+/usr/include/c++/14/cmath:
 
-/usr/include/eigen3/Eigen/Cholesky:
+/usr/include/ceres/ordered_groups.h:
 
-/usr/include/c++/14/cassert:
+/usr/include/ceres/problem.h:
+
+/usr/include/ceres/product_manifold.h:
+
+/usr/include/eigen3/Eigen/src/Core/CoreIterators.h:
+
+/usr/include/ceres/solver.h:
 
 /usr/include/ceres/types.h:
 
@@ -1736,8 +1771,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/linux/limits.h:
 
 /usr/include/eigen3/Eigen/src/Core/MathFunctions.h:
-
-/usr/include/x86_64-linux-gnu/bits/getopt_core.h:
 
 /usr/include/eigen3/Eigen/src/Core/Matrix.h:
 
@@ -1903,6 +1936,12 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/eigen3/Eigen/src/Eigenvalues/GeneralizedSelfAdjointEigenSolver.h:
 
+/usr/include/x86_64-linux-gnu/c++/14/bits/c++io.h:
+
+/usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h:
+
+/usr/include/eigen3/Eigen/src/Eigenvalues/HessenbergDecomposition.h:
+
 /usr/include/eigen3/Eigen/src/Eigenvalues/MatrixBaseEigenvalues.h:
 
 /usr/include/eigen3/Eigen/src/Core/products/SelfadjointMatrixMatrix.h:
@@ -1981,12 +2020,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/eigen3/Eigen/src/LU/Determinant.h:
 
-/usr/include/x86_64-linux-gnu/c++/14/bits/c++io.h:
-
-/usr/include/eigen3/Eigen/src/Eigenvalues/HessenbergDecomposition.h:
-
-/usr/include/x86_64-linux-gnu/bits/libm-simd-decl-stubs.h:
-
 /usr/include/eigen3/Eigen/src/Core/arch/SSE/Complex.h:
 
 /usr/include/eigen3/Eigen/src/LU/FullPivLU.h:
@@ -2026,6 +2059,8 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/eigen3/Eigen/src/Eigenvalues/RealSchur.h:
 
 /usr/include/eigen3/Eigen/src/plugins/ArrayCwiseUnaryOps.h:
+
+/usr/include/x86_64-linux-gnu/c++/14/bits/time_members.h:
 
 /usr/include/eigen3/Eigen/src/plugins/CommonCwiseBinaryOps.h:
 
@@ -2157,8 +2192,6 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 
 /usr/include/time.h:
 
-/usr/include/x86_64-linux-gnu/bits/getopt_posix.h:
-
 /usr/lib/x86_64-linux-gnu/libopencv_rgbd.so.4.10.0:
 
 /usr/include/unistd.h:
@@ -2190,9 +2223,3 @@ CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o:
 /usr/include/c++/14/bits/valarray_array.tcc:
 
 /usr/include/x86_64-linux-gnu/bits/fp-fast.h:
-
-/usr/include/x86_64-linux-gnu/bits/libc-header-start.h:
-
-/usr/include/c++/14/bits/uses_allocator.h:
-
-/usr/include/x86_64-linux-gnu/bits/local_lim.h:

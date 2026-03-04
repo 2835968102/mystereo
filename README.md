@@ -316,40 +316,22 @@ cmake --build . -j$(nproc) --target run_offline_stereo_ba
 build/bin/run_offline_stereo_ba \
     --input stereo_calib/scripts/matches.json \
     --output stereo_calib/result/offline_ba_result.json \
-    --max_iter 100 \
+    --gt_param_file stereo_calib/scripts/camera_params.json \
+    --max_iter 40 \
     --max_score 0.2 \
     --min_pair_inliers 15 \
     --min_pair_inlier_ratio 0.5 \
     --min_track_len 3 \
-    --known_baseline 0.2 \
-    --fix_distortion \
-    --baseline_prior 0 \
-    --known_baseline 0.2 \     
-    --known_baseline_weight 20 \
-
+    --fix_distortion
 ```
 
 该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），再执行带鲁棒核的全局 BA。
 
-> 默认会使用**固定初值**启动（不依赖输入 JSON 的相机参数）：  
-> `fx=fy=1.2*max(W,H), cx=W/2, cy=H/2, R=I, t=[-0.2,0,0]`。  
-> 若希望使用输入中的 `left/right/extrinsics` 作为初值，可加 `--use_input_init`。
+> 程序会始终从 `stereo_calib/example_init_params.txt` 读取初始内外参。  
+> `--init_param_file` / `--use_input_init` / `--init_width` / `--init_height` / `--init_focal` / `--init_baseline` 已弃用并忽略。  
+> `--known_baseline` / `--known_baseline_weight` 已弃用并忽略。
 >
-> 若已知真实双目基线长度（单位米），建议加 `--known_baseline <值>` 约束 `||t||`，用于稳定尺度。
-
-#### 运行命令（可选：手动指定固定初值）
-
-```bash
-./build/bin/run_offline_stereo_ba \
-    --input  matches.json \
-    --output offline_ba_result.json \
-    --init_width 1920 \
-    --init_height 1080 \
-    --init_focal 2300 \
-    --init_baseline 0.2 \
-    --max_iter 200 \
-    --fix_distortion
-```
+> 若提供 `--gt_param_file`（支持 `.json` 或文本参数文件），输出结果 JSON 会新增 `diff_vs_gt`，表示 `estimate - gt` 的参数差值（正负号分别表示偏大/偏小）。
 
 ### 相机参数字段说明
 

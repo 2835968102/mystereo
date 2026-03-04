@@ -1,0 +1,39 @@
+# Initial stereo camera parameters for run_offline_stereo_ba
+# Format: key=value
+
+# Left intrinsics
+left_fx=2138.8888888888887
+left_fy=2138.8888888888887
+left_cx=1100.0
+left_cy=800.0
+left_k1=0.0
+left_k2=0.0
+left_p1=0.0
+left_p2=0.0
+left_k3=0.0
+
+# Right intrinsics
+right_fx=2138.8888888888887
+right_fy=2138.8888888888887
+right_cx=1100.0
+right_cy=800.0
+right_k1=0.0
+right_k2=0.0
+right_p1=0.0
+right_p2=0.0
+right_k3=0.0
+
+# Stereo extrinsics (right w.r.t. left): X_r = R * X_l + t
+R00=1.0
+R01=0.0
+R02=0.0
+R10=0.0
+R11=1.0
+R12=0.0
+R20=0.0
+R21=0.0
+R22=1.0
+
+tx=-0.2
+ty=0.0
+tz=0.0
