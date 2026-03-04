@@ -316,12 +316,17 @@ cmake --build . -j$(nproc) --target run_offline_stereo_ba
 build/bin/run_offline_stereo_ba \
     --input stereo_calib/scripts/matches.json \
     --output stereo_calib/result/offline_ba_result.json \
-    --max_iter 40 \
+    --max_iter 100 \
     --max_score 0.2 \
     --min_pair_inliers 15 \
     --min_pair_inlier_ratio 0.5 \
     --min_track_len 3 \
-    --fix_distortion
+    --known_baseline 0.2 \
+    --fix_distortion \
+    --baseline_prior 0 \
+    --known_baseline 0.2 \     
+    --known_baseline_weight 20 \
+
 ```
 
 该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），再执行带鲁棒核的全局 BA。
@@ -329,6 +334,8 @@ build/bin/run_offline_stereo_ba \
 > 默认会使用**固定初值**启动（不依赖输入 JSON 的相机参数）：  
 > `fx=fy=1.2*max(W,H), cx=W/2, cy=H/2, R=I, t=[-0.2,0,0]`。  
 > 若希望使用输入中的 `left/right/extrinsics` 作为初值，可加 `--use_input_init`。
+>
+> 若已知真实双目基线长度（单位米），建议加 `--known_baseline <值>` 约束 `||t||`，用于稳定尺度。
 
 #### 运行命令（可选：手动指定固定初值）
 

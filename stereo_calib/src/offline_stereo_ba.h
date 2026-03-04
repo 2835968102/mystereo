@@ -39,6 +39,9 @@ class OfflineStereoBA {
     double min_pair_inlier_ratio = 0.35;
     bool fix_distortion = false;
     double aspect_ratio_prior_weight = 1.0;
+    // If > 0, constrain ||t_rl|| to this known stereo baseline length (meters).
+    double known_baseline = -1.0;
+    double known_baseline_weight = 50.0;
     double max_reproj_error = 20.0;
     double baseline_prior_weight = 10.0;
   };

@@ -168,7 +168,7 @@ int main(int argc, char** argv)
   int init_width = 0;
   int init_height = 0;
   double init_focal = -1.0;
-  double init_baseline = 0.2;
+  double init_baseline = 0.4;
 
   OfflineStereoBA::Options options;
 
@@ -204,6 +204,10 @@ int main(int argc, char** argv)
       options.fix_distortion = true;
     } else if (arg == "--aspect_ratio_prior" && i + 1 < argc) {
       options.aspect_ratio_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--known_baseline" && i + 1 < argc) {
+      options.known_baseline = std::stod(argv[++i]);
+    } else if (arg == "--known_baseline_weight" && i + 1 < argc) {
+      options.known_baseline_weight = std::stod(argv[++i]);
     } else if (arg == "--max_reproj_error" && i + 1 < argc) {
       options.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
@@ -218,6 +222,7 @@ int main(int argc, char** argv)
               << "[--max_iter 200] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
               << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
               << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
+              << "[--known_baseline 0.2] [--known_baseline_weight 50.0] "
               << "[--baseline_prior 10.0] [--max_reproj_error 20.0]"
               << std::endl;
     return 1;

@@ -64,6 +64,29 @@ struct AspectRatioPriorFactor {
   double weight_ = 0.0;
 };
 
+struct BaselineLengthFactor {
+  BaselineLengthFactor(double baseline, double weight) : baseline_(baseline), weight_(weight) {}
+
+  bool operator()(const double* extrinsics, double* residual) const
+  {
+    const double tx = extrinsics[3];
+    const double ty = extrinsics[4];
+    const double tz = extrinsics[5];
+    const double norm_t = std::sqrt(tx * tx + ty * ty + tz * tz);
+    residual[0] = weight_ * (norm_t - baseline_);
+    return true;
+  }
+
+  static ceres::CostFunction* Create(double baseline, double weight)
+  {
+    return new ceres::NumericDiffCostFunction<BaselineLengthFactor, ceres::CENTRAL, 1, 6>(
+        new BaselineLengthFactor(baseline, weight));
+  }
+
+  double baseline_ = 0.0;
+  double weight_ = 0.0;
+};
+
 struct TrackReprojFactor {
   TrackReprojFactor(const cv::Point2f& obs, bool is_left) : obs_(obs), is_left_(is_left) {}
 
@@ -783,6 +806,11 @@ void OfflineStereoBA::BuildProblem()
   if (options_.baseline_prior_weight > 0.0) {
     ceres::CostFunction* prior_cost = BaselinePriorFactor::Create(init_extrinsics_, options_.baseline_prior_weight);
     problem_.AddResidualBlock(prior_cost, NULL, extrinsics_.data());
+  }
+  if (options_.known_baseline > 0.0 && options_.known_baseline_weight > 0.0) {
+    ceres::CostFunction* baseline_len_cost =
+        BaselineLengthFactor::Create(options_.known_baseline, options_.known_baseline_weight);
+    problem_.AddResidualBlock(baseline_len_cost, NULL, extrinsics_.data());
   }
   if (options_.aspect_ratio_prior_weight > 0.0) {
     ceres::CostFunction* aspect_left = AspectRatioPriorFactor::Create(options_.aspect_ratio_prior_weight);
