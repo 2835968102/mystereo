@@ -142,6 +142,67 @@ run_stereo_calib/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_stereo_calib.dir/build.make CMakeFiles/run_stereo_calib.dir/build
 .PHONY : run_stereo_calib/fast
 
+#=============================================================================
+# Target rules for targets named run_offline_stereo_ba
+
+# Build rule for target.
+run_offline_stereo_ba: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 run_offline_stereo_ba
+.PHONY : run_offline_stereo_ba
+
+# fast build rule for target.
+run_offline_stereo_ba/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/build
+.PHONY : run_offline_stereo_ba/fast
+
+src/offline_stereo_ba.o: src/offline_stereo_ba.cc.o
+.PHONY : src/offline_stereo_ba.o
+
+# target to build an object file
+src/offline_stereo_ba.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o
+.PHONY : src/offline_stereo_ba.cc.o
+
+src/offline_stereo_ba.i: src/offline_stereo_ba.cc.i
+.PHONY : src/offline_stereo_ba.i
+
+# target to preprocess a source file
+src/offline_stereo_ba.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.i
+.PHONY : src/offline_stereo_ba.cc.i
+
+src/offline_stereo_ba.s: src/offline_stereo_ba.cc.s
+.PHONY : src/offline_stereo_ba.s
+
+# target to generate assembly for a file
+src/offline_stereo_ba.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.s
+.PHONY : src/offline_stereo_ba.cc.s
+
+src/run_offline_stereo_ba.o: src/run_offline_stereo_ba.cc.o
+.PHONY : src/run_offline_stereo_ba.o
+
+# target to build an object file
+src/run_offline_stereo_ba.cc.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o
+.PHONY : src/run_offline_stereo_ba.cc.o
+
+src/run_offline_stereo_ba.i: src/run_offline_stereo_ba.cc.i
+.PHONY : src/run_offline_stereo_ba.i
+
+# target to preprocess a source file
+src/run_offline_stereo_ba.cc.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.i
+.PHONY : src/run_offline_stereo_ba.cc.i
+
+src/run_offline_stereo_ba.s: src/run_offline_stereo_ba.cc.s
+.PHONY : src/run_offline_stereo_ba.s
+
+# target to generate assembly for a file
+src/run_offline_stereo_ba.cc.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.s
+.PHONY : src/run_offline_stereo_ba.cc.s
+
 src/run_stereo_calib.o: src/run_stereo_calib.cc.o
 .PHONY : src/run_stereo_calib.o
 
@@ -222,8 +283,15 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
+	@echo "... run_offline_stereo_ba"
 	@echo "... run_stereo_calib"
 	@echo "... stereo_core"
+	@echo "... src/offline_stereo_ba.o"
+	@echo "... src/offline_stereo_ba.i"
+	@echo "... src/offline_stereo_ba.s"
+	@echo "... src/run_offline_stereo_ba.o"
+	@echo "... src/run_offline_stereo_ba.i"
+	@echo "... src/run_offline_stereo_ba.s"
 	@echo "... src/run_stereo_calib.o"
 	@echo "... src/run_stereo_calib.i"
 	@echo "... src/run_stereo_calib.s"

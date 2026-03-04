@@ -65,11 +65,13 @@ CMAKE_BINARY_DIR = /home/hello/pml/mycalib/build
 # The main recursive "all" target.
 all: CMakeFiles/stereo_core.dir/all
 all: CMakeFiles/run_stereo_calib.dir/all
+all: CMakeFiles/run_offline_stereo_ba.dir/all
 .PHONY : all
 
 # The main recursive "codegen" target.
 codegen: CMakeFiles/stereo_core.dir/codegen
 codegen: CMakeFiles/run_stereo_calib.dir/codegen
+codegen: CMakeFiles/run_offline_stereo_ba.dir/codegen
 .PHONY : codegen
 
 # The main recursive "preinstall" target.
@@ -79,6 +81,7 @@ preinstall:
 # The main recursive "clean" target.
 clean: CMakeFiles/stereo_core.dir/clean
 clean: CMakeFiles/run_stereo_calib.dir/clean
+clean: CMakeFiles/run_offline_stereo_ba.dir/clean
 .PHONY : clean
 
 #=============================================================================
@@ -88,12 +91,12 @@ clean: CMakeFiles/run_stereo_calib.dir/clean
 CMakeFiles/stereo_core.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=3,4,5 "Built target stereo_core"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=5,6,7,8 "Built target stereo_core"
 .PHONY : CMakeFiles/stereo_core.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/stereo_core.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 3
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 4
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/stereo_core.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 0
 .PHONY : CMakeFiles/stereo_core.dir/rule
@@ -105,7 +108,7 @@ stereo_core: CMakeFiles/stereo_core.dir/rule
 # codegen rule for target.
 CMakeFiles/stereo_core.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/stereo_core.dir/build.make CMakeFiles/stereo_core.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=3,4,5 "Finished codegen for target stereo_core"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=5,6,7,8 "Finished codegen for target stereo_core"
 .PHONY : CMakeFiles/stereo_core.dir/codegen
 
 # clean rule for target.
@@ -120,12 +123,12 @@ CMakeFiles/stereo_core.dir/clean:
 CMakeFiles/run_stereo_calib.dir/all: CMakeFiles/stereo_core.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_stereo_calib.dir/build.make CMakeFiles/run_stereo_calib.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_stereo_calib.dir/build.make CMakeFiles/run_stereo_calib.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=1,2 "Built target run_stereo_calib"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=3,4 "Built target run_stereo_calib"
 .PHONY : CMakeFiles/run_stereo_calib.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/run_stereo_calib.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 5
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 6
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/run_stereo_calib.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 0
 .PHONY : CMakeFiles/run_stereo_calib.dir/rule
@@ -137,13 +140,45 @@ run_stereo_calib: CMakeFiles/run_stereo_calib.dir/rule
 # codegen rule for target.
 CMakeFiles/run_stereo_calib.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_stereo_calib.dir/build.make CMakeFiles/run_stereo_calib.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=1,2 "Finished codegen for target run_stereo_calib"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=3,4 "Finished codegen for target run_stereo_calib"
 .PHONY : CMakeFiles/run_stereo_calib.dir/codegen
 
 # clean rule for target.
 CMakeFiles/run_stereo_calib.dir/clean:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_stereo_calib.dir/build.make CMakeFiles/run_stereo_calib.dir/clean
 .PHONY : CMakeFiles/run_stereo_calib.dir/clean
+
+#=============================================================================
+# Target rules for target CMakeFiles/run_offline_stereo_ba.dir
+
+# All Build rule for target.
+CMakeFiles/run_offline_stereo_ba.dir/all: CMakeFiles/stereo_core.dir/all
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=1,2 "Built target run_offline_stereo_ba"
+.PHONY : CMakeFiles/run_offline_stereo_ba.dir/all
+
+# Build rule for subdir invocation for target.
+CMakeFiles/run_offline_stereo_ba.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 6
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/run_offline_stereo_ba.dir/all
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/hello/pml/mycalib/build/CMakeFiles 0
+.PHONY : CMakeFiles/run_offline_stereo_ba.dir/rule
+
+# Convenience name for target.
+run_offline_stereo_ba: CMakeFiles/run_offline_stereo_ba.dir/rule
+.PHONY : run_offline_stereo_ba
+
+# codegen rule for target.
+CMakeFiles/run_offline_stereo_ba.dir/codegen:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/codegen
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=1,2 "Finished codegen for target run_offline_stereo_ba"
+.PHONY : CMakeFiles/run_offline_stereo_ba.dir/codegen
+
+# clean rule for target.
+CMakeFiles/run_offline_stereo_ba.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/run_offline_stereo_ba.dir/build.make CMakeFiles/run_offline_stereo_ba.dir/clean
+.PHONY : CMakeFiles/run_offline_stereo_ba.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

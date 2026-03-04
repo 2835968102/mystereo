@@ -39,6 +39,7 @@ include_directories(src)
 set(STEREO_CORE_SRCS
     src/stereo_factors.cc
     src/stereo_optimizer.cc
+    src/offline_stereo_ba.cc
 )
 
 # Core library (reusable by tests, other apps)
@@ -48,3 +49,7 @@ target_link_libraries(stereo_core ${EXTERNAL_LIBRARIES})
 # Main executable
 add_executable(run_stereo_calib src/run_stereo_calib.cc)
 target_link_libraries(run_stereo_calib stereo_core ${EXTERNAL_LIBRARIES})
+
+# Offline BA executable (track-building + global robust BA)
+add_executable(run_offline_stereo_ba src/run_offline_stereo_ba.cc)
+target_link_libraries(run_offline_stereo_ba stereo_core ${EXTERNAL_LIBRARIES})

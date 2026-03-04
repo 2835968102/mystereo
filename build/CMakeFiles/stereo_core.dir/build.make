@@ -100,19 +100,35 @@ CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.s"
 	/usr/bin/g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/hello/pml/mycalib/stereo_calib/src/stereo_optimizer.cc -o CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.s
 
+CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o: CMakeFiles/stereo_core.dir/flags.make
+CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o: /home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc
+CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o: CMakeFiles/stereo_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o"
+	/usr/bin/g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o -MF CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o.d -o CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o -c /home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc
+
+CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.i"
+	/usr/bin/g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc > CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.i
+
+CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.s"
+	/usr/bin/g++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc -o CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.s
+
 # Object files for target stereo_core
 stereo_core_OBJECTS = \
 "CMakeFiles/stereo_core.dir/src/stereo_factors.cc.o" \
-"CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o"
+"CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o" \
+"CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o"
 
 # External object files for target stereo_core
 stereo_core_EXTERNAL_OBJECTS =
 
 libstereo_core.a: CMakeFiles/stereo_core.dir/src/stereo_factors.cc.o
 libstereo_core.a: CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o
+libstereo_core.a: CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o
 libstereo_core.a: CMakeFiles/stereo_core.dir/build.make
 libstereo_core.a: CMakeFiles/stereo_core.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX static library libstereo_core.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/hello/pml/mycalib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX static library libstereo_core.a"
 	$(CMAKE_COMMAND) -P CMakeFiles/stereo_core.dir/cmake_clean_target.cmake
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/stereo_core.dir/link.txt --verbose=$(VERBOSE)
 

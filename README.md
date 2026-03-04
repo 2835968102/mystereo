@@ -295,6 +295,20 @@ build/bin/run_stereo_calib \
 
 输入 JSON 中的 `left`、`right`（内参）和 `extrinsics`（外参）作为优化初值；`pairs.matches` 中的像素对作为约束。优化结果写入 `--output`，格式与输入相同。
 
+### 论文风格离线 BA（Track + 全局优化）
+
+参考 `PTZ-Calib` 论文离线阶段思想，新增了 `run_offline_stereo_ba`：
+
+```bash
+build/bin/run_offline_stereo_ba \
+    --input  matches.json \
+    --output offline_ba_result.json \
+    --max_iter 200 \
+    --min_track_len 3
+```
+
+该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），再执行带鲁棒核的全局 BA。
+
 ### 相机参数字段说明
 
 | 字段 | 含义 |

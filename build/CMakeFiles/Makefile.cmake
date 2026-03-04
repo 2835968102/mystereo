@@ -97,4 +97,5 @@ set(CMAKE_MAKEFILE_PRODUCTS
 set(CMAKE_DEPEND_INFO_FILES
   "CMakeFiles/stereo_core.dir/DependInfo.cmake"
   "CMakeFiles/run_stereo_calib.dir/DependInfo.cmake"
+  "CMakeFiles/run_offline_stereo_ba.dir/DependInfo.cmake"
   )

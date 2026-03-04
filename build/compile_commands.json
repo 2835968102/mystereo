@@ -13,8 +13,20 @@
 },
 {
   "directory": "/home/hello/pml/mycalib/build",
+  "command": "/usr/bin/g++ -DGFLAGS_IS_A_DLL=0 -DGLOG_CUSTOM_PREFIX_SUPPORT -I/home/hello/pml/mycalib/stereo_calib/../3rdparty/json-3.9.1/single_include -I/usr/local/include/eigen3 -I/home/hello/pml/mycalib/stereo_calib/src -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -g -Wall -pthread -std=c++11 -fPIC -Wno-sign-compare -g -std=gnu++17 -o CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o -c /home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc",
+  "file": "/home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc",
+  "output": "CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o"
+},
+{
+  "directory": "/home/hello/pml/mycalib/build",
   "command": "/usr/bin/g++ -DGFLAGS_IS_A_DLL=0 -DGLOG_CUSTOM_PREFIX_SUPPORT -I/home/hello/pml/mycalib/stereo_calib/../3rdparty/json-3.9.1/single_include -I/usr/local/include/eigen3 -I/home/hello/pml/mycalib/stereo_calib/src -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -g -Wall -pthread -std=c++11 -fPIC -Wno-sign-compare -g -std=gnu++17 -o CMakeFiles/run_stereo_calib.dir/src/run_stereo_calib.cc.o -c /home/hello/pml/mycalib/stereo_calib/src/run_stereo_calib.cc",
   "file": "/home/hello/pml/mycalib/stereo_calib/src/run_stereo_calib.cc",
   "output": "CMakeFiles/run_stereo_calib.dir/src/run_stereo_calib.cc.o"
+},
+{
+  "directory": "/home/hello/pml/mycalib/build",
+  "command": "/usr/bin/g++ -DGFLAGS_IS_A_DLL=0 -DGLOG_CUSTOM_PREFIX_SUPPORT -I/home/hello/pml/mycalib/stereo_calib/../3rdparty/json-3.9.1/single_include -I/usr/local/include/eigen3 -I/home/hello/pml/mycalib/stereo_calib/src -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -g -Wall -pthread -std=c++11 -fPIC -Wno-sign-compare -g -std=gnu++17 -o CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o -c /home/hello/pml/mycalib/stereo_calib/src/run_offline_stereo_ba.cc",
+  "file": "/home/hello/pml/mycalib/stereo_calib/src/run_offline_stereo_ba.cc",
+  "output": "CMakeFiles/run_offline_stereo_ba.dir/src/run_offline_stereo_ba.cc.o"
 }
 ]

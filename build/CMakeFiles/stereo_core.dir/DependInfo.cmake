@@ -8,6 +8,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/hello/pml/mycalib/stereo_calib/src/offline_stereo_ba.cc" "CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o" "gcc" "CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o.d"
   "/home/hello/pml/mycalib/stereo_calib/src/stereo_factors.cc" "CMakeFiles/stereo_core.dir/src/stereo_factors.cc.o" "gcc" "CMakeFiles/stereo_core.dir/src/stereo_factors.cc.o.d"
   "/home/hello/pml/mycalib/stereo_calib/src/stereo_optimizer.cc" "CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o" "gcc" "CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o.d"
   )
