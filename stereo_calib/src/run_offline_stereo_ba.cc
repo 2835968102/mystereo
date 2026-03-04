@@ -2,6 +2,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 #include <nlohmann/json.hpp>
 #include <opencv2/core.hpp>
@@ -114,12 +117,58 @@ std::vector<RawImagePair> PairsFromJson(const json& j)
   return pairs;
 }
 
+bool InferImageSizeFromPairs(const std::vector<RawImagePair>& pairs, int& width, int& height)
+{
+  float max_x = 0.0f;
+  float max_y = 0.0f;
+  bool has_point = false;
+
+  for (size_t i = 0; i < pairs.size(); ++i) {
+    const RawImagePair& pair = pairs[i];
+    for (size_t k = 0; k < pair.matches.size(); ++k) {
+      const RawPairMatch& m = pair.matches[k];
+      max_x = std::max(max_x, std::max(m.pt_a.x, m.pt_b.x));
+      max_y = std::max(max_y, std::max(m.pt_a.y, m.pt_b.y));
+      has_point = true;
+    }
+  }
+
+  if (!has_point) {
+    return false;
+  }
+
+  width = std::max(640, static_cast<int>(std::ceil(max_x + 1.0f)));
+  height = std::max(480, static_cast<int>(std::ceil(max_y + 1.0f)));
+  return true;
+}
+
+StereoCamera BuildFixedInitCamera(int width, int height, double focal, double baseline)
+{
+  StereoCamera cam;
+  cam.left.fx = focal;
+  cam.left.fy = focal;
+  cam.left.cx = width * 0.5;
+  cam.left.cy = height * 0.5;
+  cam.left.k1 = cam.left.k2 = cam.left.p1 = cam.left.p2 = cam.left.k3 = 0.0;
+
+  cam.right = cam.left;
+
+  cam.extrinsics.R = cv::Mat::eye(3, 3, CV_64F);
+  cam.extrinsics.t = (cv::Mat_<double>(3, 1) << -baseline, 0.0, 0.0);
+  return cam;
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
 {
   std::string input_path;
   std::string output_path;
+  bool use_input_init = false;
+  int init_width = 0;
+  int init_height = 0;
+  double init_focal = -1.0;
+  double init_baseline = 0.2;
 
   OfflineStereoBA::Options options;
 
@@ -129,6 +178,16 @@ int main(int argc, char** argv)
       input_path = argv[++i];
     } else if (arg == "--output" && i + 1 < argc) {
       output_path = argv[++i];
+    } else if (arg == "--use_input_init") {
+      use_input_init = true;
+    } else if (arg == "--init_width" && i + 1 < argc) {
+      init_width = std::stoi(argv[++i]);
+    } else if (arg == "--init_height" && i + 1 < argc) {
+      init_height = std::stoi(argv[++i]);
+    } else if (arg == "--init_focal" && i + 1 < argc) {
+      init_focal = std::stod(argv[++i]);
+    } else if (arg == "--init_baseline" && i + 1 < argc) {
+      init_baseline = std::stod(argv[++i]);
     } else if (arg == "--max_iter" && i + 1 < argc) {
       options.max_iter = std::stoi(argv[++i]);
     } else if (arg == "--min_track_len" && i + 1 < argc) {
@@ -154,6 +213,8 @@ int main(int argc, char** argv)
 
   if (input_path.empty() || output_path.empty()) {
     std::cerr << "Usage: run_offline_stereo_ba --input <matches.json> --output <result.json> "
+              << "[--use_input_init] [--init_width 1920] [--init_height 1080] "
+              << "[--init_focal 2304] [--init_baseline 0.2] "
               << "[--max_iter 200] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
               << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
               << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
@@ -172,15 +233,62 @@ int main(int argc, char** argv)
   fin >> j;
 
   if (!j.contains("left") || !j.contains("right") || !j.contains("extrinsics") || !j.contains("pairs")) {
-    std::cerr << "Input json must contain: left, right, extrinsics, pairs" << std::endl;
-    return 1;
+    if (!j.contains("pairs")) {
+      std::cerr << "Input json must contain: pairs" << std::endl;
+      return 1;
+    }
   }
 
   OfflineBAInput input;
-  input.init_camera.left = IntrinsicsFromJson(j.at("left"));
-  input.init_camera.right = IntrinsicsFromJson(j.at("right"));
-  input.init_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
   input.pairs = PairsFromJson(j.at("pairs"));
+
+  const bool has_input_init = j.contains("left") && j.contains("right") && j.contains("extrinsics");
+  if (use_input_init && has_input_init) {
+    input.init_camera.left = IntrinsicsFromJson(j.at("left"));
+    input.init_camera.right = IntrinsicsFromJson(j.at("right"));
+    input.init_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
+    std::cout << "Init mode: use_input_init" << std::endl;
+  } else {
+    int width = init_width;
+    int height = init_height;
+
+    if ((width <= 0 || height <= 0) && j.contains("image_size")) {
+      const json& sz = j.at("image_size");
+      width = width > 0 ? width : sz.value("width", 0);
+      height = height > 0 ? height : sz.value("height", 0);
+    }
+
+    if (width <= 0 || height <= 0) {
+      int inferred_w = 0;
+      int inferred_h = 0;
+      if (InferImageSizeFromPairs(input.pairs, inferred_w, inferred_h)) {
+        width = width > 0 ? width : inferred_w;
+        height = height > 0 ? height : inferred_h;
+      }
+    }
+
+    if (width <= 0) {
+      width = 1920;
+    }
+    if (height <= 0) {
+      height = 1080;
+    }
+
+    double focal = init_focal;
+    if (focal <= 0.0) {
+      focal = 1.2 * static_cast<double>(std::max(width, height));
+    }
+
+    input.init_camera = BuildFixedInitCamera(width, height, focal, init_baseline);
+    std::cout << "Init mode: fixed_default (fx=fy=" << focal
+              << ", cx=" << input.init_camera.left.cx
+              << ", cy=" << input.init_camera.left.cy
+              << ", baseline=" << init_baseline << ")" << std::endl;
+    if (use_input_init && !has_input_init) {
+      std::cout << "Warning: --use_input_init set but input json has no left/right/extrinsics, fallback to fixed init."
+                << std::endl;
+    }
+  }
 
   std::size_t raw_matches = 0;
   for (std::size_t i = 0; i < input.pairs.size(); ++i) {

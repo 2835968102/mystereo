@@ -299,15 +299,50 @@ build/bin/run_stereo_calib \
 
 参考 `PTZ-Calib` 论文离线阶段思想，新增了 `run_offline_stereo_ba`：
 
+#### 构建命令
+
+```bash
+mkdir -p build
+cd build
+cmake ../stereo_calib
+cmake --build . -j$(nproc) --target run_offline_stereo_ba
+```
+
+构建完成后可执行文件位于：`build/bin/run_offline_stereo_ba`。
+
+#### 运行命令（默认推荐）
+
 ```bash
 build/bin/run_offline_stereo_ba \
-    --input  matches.json \
-    --output offline_ba_result.json \
-    --max_iter 200 \
-    --min_track_len 3
+    --input stereo_calib/scripts/matches.json \
+    --output stereo_calib/result/offline_ba_result.json \
+    --max_iter 40 \
+    --max_score 0.2 \
+    --min_pair_inliers 15 \
+    --min_pair_inlier_ratio 0.5 \
+    --min_track_len 3 \
+    --fix_distortion
 ```
 
 该程序会先对 `pairs` 里的两两匹配做 Union-Find 轨迹构建（tracks building），再执行带鲁棒核的全局 BA。
+
+> 默认会使用**固定初值**启动（不依赖输入 JSON 的相机参数）：  
+> `fx=fy=1.2*max(W,H), cx=W/2, cy=H/2, R=I, t=[-0.2,0,0]`。  
+> 若希望使用输入中的 `left/right/extrinsics` 作为初值，可加 `--use_input_init`。
+
+#### 运行命令（可选：手动指定固定初值）
+
+```bash
+./build/bin/run_offline_stereo_ba \
+    --input  matches.json \
+    --output offline_ba_result.json \
+    --init_width 1920 \
+    --init_height 1080 \
+    --init_focal 2300 \
+    --init_baseline 0.2 \
+    --max_iter 200 \
+    --fix_distortion
+```
 
 ### 相机参数字段说明
 
