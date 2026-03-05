@@ -19,6 +19,9 @@ using namespace stereocalib;
 
 namespace {
 
+// ========== JSON序列化/反序列化辅助函数 ==========
+
+// 从JSON对象解析相机内参
 Intrinsics IntrinsicsFromJson(const json& j)
 {
   Intrinsics intr;
@@ -70,6 +73,8 @@ json ExtrinsicsToJson(const StereoExtrinsics& ext)
   return {{"R", R_vec}, {"t", t_vec}};
 }
 
+// 从JSON数组解析图像对列表及其匹配点
+// 每个图像对包含左右图像路径和特征点匹配
 std::vector<RawImagePair> PairsFromJson(const json& j)
 {
   std::vector<RawImagePair> pairs;
@@ -133,6 +138,10 @@ std::string Trim(const std::string& s)
   return s.substr(b, e - b);
 }
 
+// ========== 初始相机参数加载函数 ==========
+
+// 从文本文件加载初始相机参数（键值对格式）
+// 格式示例：left_fx=1000.0
 bool LoadInitCameraFromText(const std::string& path, StereoCamera& cam, std::string& err)
 {
   std::ifstream fin(path.c_str());
@@ -212,6 +221,7 @@ bool LoadInitCameraFromText(const std::string& path, StereoCamera& cam, std::str
   return true;
 }
 
+// 从JSON文件加载相机参数
 bool LoadCameraFromJsonFile(const std::string& path, StereoCamera& cam, std::string& err)
 {
   std::ifstream fin(path.c_str());
@@ -254,6 +264,9 @@ bool LoadCameraFromFile(const std::string& path, StereoCamera& cam, std::string&
   return LoadInitCameraFromText(path, cam, err);
 }
 
+// ========== 标定结果评估函数 ==========
+
+// 计算两个旋转矩阵之间的角度误差（度）
 double RotationErrorDeg(const cv::Mat& R_est, const cv::Mat& R_gt)
 {
   static const double kRad2Deg = 57.2957795130823208768;
@@ -264,6 +277,7 @@ double RotationErrorDeg(const cv::Mat& R_est, const cv::Mat& R_gt)
   return std::acos(cos_theta) * kRad2Deg;
 }
 
+// 计算平移向量的模长（基线距离）
 double TranslationNorm(const cv::Mat& t)
 {
   return std::sqrt(t.at<double>(0, 0) * t.at<double>(0, 0) +
@@ -271,6 +285,7 @@ double TranslationNorm(const cv::Mat& t)
                    t.at<double>(2, 0) * t.at<double>(2, 0));
 }
 
+// 计算估计值与真值的内参差异并转换为JSON
 json IntrinsicsDiffToJson(const Intrinsics& est, const Intrinsics& gt)
 {
   return {
@@ -286,6 +301,7 @@ json IntrinsicsDiffToJson(const Intrinsics& est, const Intrinsics& gt)
   };
 }
 
+// 计算估计值与真值的外参差异并转换为JSON，包含旋转误差和基线误差
 json ExtrinsicsDiffToJson(const StereoExtrinsics& est, const StereoExtrinsics& gt)
 {
   std::vector<double> dR(9, 0.0);
@@ -310,6 +326,7 @@ json ExtrinsicsDiffToJson(const StereoExtrinsics& est, const StereoExtrinsics& g
   };
 }
 
+// 打印标定结果与真值的对比（用于调试和评估）
 void PrintDiffVsGT(const StereoCamera& est, const StereoCamera& gt, const std::string& source)
 {
   std::cout << "Comparison vs ground truth (" << source << "), delta = estimate - gt:" << std::endl;
@@ -335,6 +352,7 @@ void PrintDiffVsGT(const StereoCamera& est, const StereoCamera& gt, const std::s
   std::cout << std::noshowpos;
 }
 
+// 打印初始相机参数（用于调试）
 void PrintInitCamera(const StereoCamera& cam)
 {
   auto print_intr = [](const std::string& name, const Intrinsics& intr) {
@@ -369,16 +387,31 @@ void PrintInitCamera(const StereoCamera& cam)
 
 }  // namespace
 
+/**
+ * 离线双目相机标定主程序
+ *
+ * 标定流程说明：
+ * 1. 参数解析：解析命令行参数，配置优化器选项
+ * 2. 加载输入数据：读取包含图像对及其特征匹配的JSON文件
+ * 3. 加载初始值：从预设的初始参数文件加载相机内外参初值
+ * 4. 增量式Bundle Adjustment优化：
+ *    - 逐帧增量注册图像对
+ *    - 周期性执行全局优化以精化所有参数
+ *    - 使用Huber损失函数提高鲁棒性
+ * 5. 输出结果：保存优化后的相机参数，并可选地与真值进行对比
+ */
 int main(int argc, char** argv)
 {
   std::string input_path;
   std::string output_path;
   std::string gt_param_file;
   const std::string kForcedInitPathA = "stereo_calib/data/example_init_params.txt";
-  const std::string kForcedInitPathB = "../stereo_calib/data/example_init_params.txt";
+  const std::string kForcedInitPathB = "../data/example_init_params.txt";
 
   OfflineStereoBA::Options options;
 
+  // ========== 步骤1: 解析命令行参数 ==========
+  // 配置优化器参数，如最大迭代次数、Huber损失阈值、匹配点过滤条件等
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--input" && i + 1 < argc) {
@@ -452,6 +485,8 @@ int main(int argc, char** argv)
     return 1;
   }
 
+  // ========== 步骤2: 加载输入数据 ==========
+  // 读取包含图像对列表及其特征匹配点的JSON文件
   std::ifstream fin(input_path.c_str());
   if (!fin.is_open()) {
     std::cerr << "Cannot open input file: " << input_path << std::endl;
@@ -471,6 +506,9 @@ int main(int argc, char** argv)
   OfflineBAInput input;
   input.pairs = PairsFromJson(j.at("pairs"));
 
+  // ========== 步骤3: 加载初始相机参数 ==========
+  // 从固定的初始参数文件加载双目相机的内参（fx, fy, cx, cy, 畸变系数）
+  // 和外参（左右相机之间的旋转R和平移t）作为优化的初值
   std::string err;
   if (!LoadInitCameraFromText(kForcedInitPathA, input.init_camera, err)) {
     if (!LoadInitCameraFromText(kForcedInitPathB, input.init_camera, err)) {
@@ -494,6 +532,12 @@ int main(int argc, char** argv)
   std::cout << "Loaded " << input.pairs.size() << " pair records, "
             << raw_matches << " raw matches." << std::endl;
 
+  // ========== 步骤4: 执行增量式Bundle Adjustment优化 ==========
+  // 创建优化器并执行标定：
+  // - 增量式注册：逐帧添加图像对，建立3D点轨迹
+  // - 周期性全局优化：每隔global_opt_interval帧进行一次全局BA
+  // - 联合优化：同时优化左右相机内参、外参和3D点位置
+  // - 鲁棒估计：使用Huber损失函数和离群点剔除提高鲁棒性
   OfflineStereoBA optimizer(input, options);
   StereoCamera result_camera;
   bool success = optimizer.Solve(result_camera);
@@ -502,6 +546,12 @@ int main(int argc, char** argv)
     std::cerr << "Offline stereo BA did not pass the quality gate, writing best estimate anyway." << std::endl;
   }
 
+  // ========== 步骤5: 保存标定结果 ==========
+  // 输出优化后的相机参数到JSON文件，包括：
+  // - 左右相机内参（焦距、主点、畸变系数）
+  // - 双目外参（左右相机的相对位姿R和t）
+  // - 优化统计信息（轨迹数、观测数、重投影误差等）
+  // - 可选：与真值的对比结果
   json out;
   out["left"] = IntrinsicsToJson(result_camera.left);
   out["right"] = IntrinsicsToJson(result_camera.right);
