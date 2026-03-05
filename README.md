@@ -304,8 +304,8 @@ build/bin/run_stereo_calib \
 ```bash
 mkdir -p build
 cd build
-cmake ../stereo_calib
-cmake --build . -j$(nproc) --target run_offline_stereo_ba
+cmake ../../stereo_calib && cmake --build . -j$(nproc) --target run_offline_stereo_ba
+
 ```
 
 构建完成后可执行文件位于：`build/bin/run_offline_stereo_ba`。
@@ -313,10 +313,10 @@ cmake --build . -j$(nproc) --target run_offline_stereo_ba
 #### 运行命令（默认推荐）
 
 ```bash
-build/bin/run_offline_stereo_ba \
-    --input stereo_calib/data/matches.json \
-    --gt_param_file stereo_calib/data/camera_params.json \
-    --output stereo_calib/result/offline_ba_result.json \
+bin/run_offline_stereo_ba \
+    --input ../data/matches.json \
+    --gt_param_file ../data/camera_params.json \
+    --output ../result/offline_ba_result.json \
     --max_iter 40 \
     --incremental_max_iter 10 \
     --global_opt_interval 5 \
