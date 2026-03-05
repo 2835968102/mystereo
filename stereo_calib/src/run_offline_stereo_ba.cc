@@ -532,6 +532,30 @@ int main(int argc, char** argv)
   std::cout << "Loaded " << input.pairs.size() << " pair records, "
             << raw_matches << " raw matches." << std::endl;
 
+  // 加载真值（如果有）用于每次优化后的对比
+  StereoCamera gt_camera;
+  bool has_gt = false;
+  std::string gt_source;
+  if (!gt_param_file.empty()) {
+    std::string err;
+    if (!LoadCameraFromFile(gt_param_file, gt_camera, err)) {
+      std::cerr << err << std::endl;
+      return 1;
+    }
+    has_gt = true;
+    gt_source = std::string("gt_param_file: ") + gt_param_file;
+  } else if (j.contains("left") && j.contains("right") && j.contains("extrinsics")) {
+    gt_camera.left = IntrinsicsFromJson(j.at("left"));
+    gt_camera.right = IntrinsicsFromJson(j.at("right"));
+    gt_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
+    has_gt = true;
+    gt_source = "input_json(left/right/extrinsics)";
+  }
+
+  if (has_gt) {
+    std::cout << "Ground truth loaded from: " << gt_source << std::endl;
+  }
+
   // ========== 步骤4: 执行增量式Bundle Adjustment优化 ==========
   // 创建优化器并执行标定：
   // - 增量式注册：逐帧添加图像对，建立3D点轨迹
@@ -539,6 +563,12 @@ int main(int argc, char** argv)
   // - 联合优化：同时优化左右相机内参、外参和3D点位置
   // - 鲁棒估计：使用Huber损失函数和离群点剔除提高鲁棒性
   OfflineStereoBA optimizer(input, options);
+
+  // 设置真值（如果有）
+  if (has_gt) {
+    optimizer.SetGroundTruth(gt_camera);
+  }
+
   StereoCamera result_camera;
   bool success = optimizer.Solve(result_camera);
 
@@ -562,25 +592,6 @@ int main(int argc, char** argv)
   out["num_frames"] = optimizer.num_frames();
   out["init_reproj_error"] = optimizer.init_reproj_error();
   out["final_reproj_error"] = optimizer.final_reproj_error();
-
-  StereoCamera gt_camera;
-  bool has_gt = false;
-  std::string gt_source;
-  if (!gt_param_file.empty()) {
-    std::string err;
-    if (!LoadCameraFromFile(gt_param_file, gt_camera, err)) {
-      std::cerr << err << std::endl;
-      return 1;
-    }
-    has_gt = true;
-    gt_source = std::string("gt_param_file: ") + gt_param_file;
-  } else if (j.contains("left") && j.contains("right") && j.contains("extrinsics")) {
-    gt_camera.left = IntrinsicsFromJson(j.at("left"));
-    gt_camera.right = IntrinsicsFromJson(j.at("right"));
-    gt_camera.extrinsics = ExtrinsicsFromJson(j.at("extrinsics"));
-    has_gt = true;
-    gt_source = "input_json(left/right/extrinsics)";
-  }
 
   if (has_gt) {
     out["gt_source"] = gt_source;

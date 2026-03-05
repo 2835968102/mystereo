@@ -50,6 +50,9 @@ class OfflineStereoBA {
 
   bool Solve(StereoCamera& result);
 
+  // 设置真值（用于每次优化后的对比输出）
+  void SetGroundTruth(const StereoCamera& gt);
+
   size_t num_tracks() const { return num_tracks_; }
   size_t num_observations() const { return num_observations_; }
   size_t num_frames() const { return frame_ids_.size(); }
@@ -134,6 +137,12 @@ class OfflineStereoBA {
 
   double init_reproj_error_ = 0.0;
   double final_reproj_error_ = 0.0;
+
+  // Ground truth for comparison (optional)
+  bool has_ground_truth_ = false;
+  StereoCamera ground_truth_;
+
+  void PrintCurrentVsGroundTruth(const std::string& stage_name) const;
 };
 
 }  // namespace stereocalib

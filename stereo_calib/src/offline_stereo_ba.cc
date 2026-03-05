@@ -918,6 +918,88 @@ void OfflineStereoBA::ApplyResult(StereoCamera& result)
   result.extrinsics.FromVector(extrinsics_);
 }
 
+void OfflineStereoBA::SetGroundTruth(const StereoCamera& gt)
+{
+  has_ground_truth_ = true;
+  ground_truth_ = gt;
+}
+
+void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) const
+{
+  if (!has_ground_truth_) {
+    return;
+  }
+
+  // 获取当前优化结果
+  StereoCamera current;
+  current.left.FromVector(intrinsics_left_);
+  current.right.FromVector(intrinsics_right_);
+  current.extrinsics.FromVector(extrinsics_);
+
+  std::cout << "\n========== " << stage_name << " - Comparison with Ground Truth ==========\n";
+  std::cout << std::showpos << std::fixed << std::setprecision(6);
+
+  // 左相机内参对比
+  std::cout << "Left camera:\n";
+  std::cout << "  fx: " << current.left.fx << " (gt: " << ground_truth_.left.fx
+            << ", diff: " << (current.left.fx - ground_truth_.left.fx) << ")\n";
+  std::cout << "  fy: " << current.left.fy << " (gt: " << ground_truth_.left.fy
+            << ", diff: " << (current.left.fy - ground_truth_.left.fy) << ")\n";
+  std::cout << "  cx: " << current.left.cx << " (gt: " << ground_truth_.left.cx
+            << ", diff: " << (current.left.cx - ground_truth_.left.cx) << ")\n";
+  std::cout << "  cy: " << current.left.cy << " (gt: " << ground_truth_.left.cy
+            << ", diff: " << (current.left.cy - ground_truth_.left.cy) << ")\n";
+
+  // 右相机内参对比
+  std::cout << "Right camera:\n";
+  std::cout << "  fx: " << current.right.fx << " (gt: " << ground_truth_.right.fx
+            << ", diff: " << (current.right.fx - ground_truth_.right.fx) << ")\n";
+  std::cout << "  fy: " << current.right.fy << " (gt: " << ground_truth_.right.fy
+            << ", diff: " << (current.right.fy - ground_truth_.right.fy) << ")\n";
+  std::cout << "  cx: " << current.right.cx << " (gt: " << ground_truth_.right.cx
+            << ", diff: " << (current.right.cx - ground_truth_.right.cx) << ")\n";
+  std::cout << "  cy: " << current.right.cy << " (gt: " << ground_truth_.right.cy
+            << ", diff: " << (current.right.cy - ground_truth_.right.cy) << ")\n";
+
+  // 外参对比 - 平移向量
+  const double tx_diff = current.extrinsics.t.at<double>(0, 0) - ground_truth_.extrinsics.t.at<double>(0, 0);
+  const double ty_diff = current.extrinsics.t.at<double>(1, 0) - ground_truth_.extrinsics.t.at<double>(1, 0);
+  const double tz_diff = current.extrinsics.t.at<double>(2, 0) - ground_truth_.extrinsics.t.at<double>(2, 0);
+
+  std::cout << "Extrinsics:\n";
+  std::cout << "  t: [" << current.extrinsics.t.at<double>(0, 0) << ", "
+            << current.extrinsics.t.at<double>(1, 0) << ", "
+            << current.extrinsics.t.at<double>(2, 0) << "]\n";
+  std::cout << "  gt: [" << ground_truth_.extrinsics.t.at<double>(0, 0) << ", "
+            << ground_truth_.extrinsics.t.at<double>(1, 0) << ", "
+            << ground_truth_.extrinsics.t.at<double>(2, 0) << "]\n";
+  std::cout << "  diff: [" << tx_diff << ", " << ty_diff << ", " << tz_diff << "]\n";
+
+  // 基线距离对比
+  const double baseline_current = std::sqrt(
+      current.extrinsics.t.at<double>(0, 0) * current.extrinsics.t.at<double>(0, 0) +
+      current.extrinsics.t.at<double>(1, 0) * current.extrinsics.t.at<double>(1, 0) +
+      current.extrinsics.t.at<double>(2, 0) * current.extrinsics.t.at<double>(2, 0));
+  const double baseline_gt = std::sqrt(
+      ground_truth_.extrinsics.t.at<double>(0, 0) * ground_truth_.extrinsics.t.at<double>(0, 0) +
+      ground_truth_.extrinsics.t.at<double>(1, 0) * ground_truth_.extrinsics.t.at<double>(1, 0) +
+      ground_truth_.extrinsics.t.at<double>(2, 0) * ground_truth_.extrinsics.t.at<double>(2, 0));
+
+  std::cout << "  baseline: " << baseline_current << " (gt: " << baseline_gt
+            << ", diff: " << (baseline_current - baseline_gt) << ")\n";
+
+  // 旋转误差
+  cv::Mat R_diff = current.extrinsics.R * ground_truth_.extrinsics.R.t();
+  const double tr = R_diff.at<double>(0, 0) + R_diff.at<double>(1, 1) + R_diff.at<double>(2, 2);
+  double cos_theta = (tr - 1.0) * 0.5;
+  cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
+  const double rot_error_deg = std::acos(cos_theta) * 57.2957795130823208768;
+
+  std::cout << "  rotation_error: " << rot_error_deg << " degrees\n";
+  std::cout << std::noshowpos;
+  std::cout << "================================================================\n\n";
+}
+
 bool OfflineStereoBA::Solve(StereoCamera& result)
 {
   if (!BuildTracks()) {
@@ -970,6 +1052,9 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                 << "/" << registration_order.size()
                 << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                 << step_final_rmse << " px" << std::endl;
+
+      // 输出当前结果与真值的对比
+      PrintCurrentVsGroundTruth("Incremental BA - Frame " + std::to_string(i + 1));
     }
 
     if (options_.global_opt_interval > 0 &&
@@ -992,6 +1077,9 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                   << "/" << registration_order.size()
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                   << global_final_rmse << " px" << std::endl;
+
+        // 输出当前结果与真值的对比
+        PrintCurrentVsGroundTruth("Periodic Global BA - Frame " + std::to_string(i + 1));
       }
     }
   }
@@ -1011,6 +1099,9 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
             << std::endl;
   std::cout << "Reprojection error: init=" << std::fixed << std::setprecision(4) << init_reproj_error_
             << " px, final=" << final_reproj_error_ << " px" << std::endl;
+
+  // 输出最终优化结果与真值的对比
+  PrintCurrentVsGroundTruth("Final Global BA");
 
   const bool converged = (summary_.termination_type == ceres::CONVERGENCE ||
                           summary_.termination_type == ceres::NO_CONVERGENCE);
