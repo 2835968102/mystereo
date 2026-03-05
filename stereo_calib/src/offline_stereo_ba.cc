@@ -1,6 +1,7 @@
 #include "offline_stereo_ba.h"
 
 #include <ceres/ceres.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -1000,6 +1001,98 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
   std::cout << "================================================================\n\n";
 }
 
+void OfflineStereoBA::RecordOptimizationStage(const std::string& stage_name, double reproj_error)
+{
+  using json = nlohmann::json;
+
+  // 获取当前优化结果
+  StereoCamera current;
+  current.left.FromVector(intrinsics_left_);
+  current.right.FromVector(intrinsics_right_);
+  current.extrinsics.FromVector(extrinsics_);
+
+  json stage_record;
+  stage_record["stage"] = stage_name;
+  stage_record["reproj_error"] = reproj_error;
+
+  // 当前相机参数
+  stage_record["camera"]["left"]["fx"] = current.left.fx;
+  stage_record["camera"]["left"]["fy"] = current.left.fy;
+  stage_record["camera"]["left"]["cx"] = current.left.cx;
+  stage_record["camera"]["left"]["cy"] = current.left.cy;
+  stage_record["camera"]["left"]["k1"] = current.left.k1;
+  stage_record["camera"]["left"]["k2"] = current.left.k2;
+  stage_record["camera"]["left"]["p1"] = current.left.p1;
+  stage_record["camera"]["left"]["p2"] = current.left.p2;
+  stage_record["camera"]["left"]["k3"] = current.left.k3;
+
+  stage_record["camera"]["right"]["fx"] = current.right.fx;
+  stage_record["camera"]["right"]["fy"] = current.right.fy;
+  stage_record["camera"]["right"]["cx"] = current.right.cx;
+  stage_record["camera"]["right"]["cy"] = current.right.cy;
+  stage_record["camera"]["right"]["k1"] = current.right.k1;
+  stage_record["camera"]["right"]["k2"] = current.right.k2;
+  stage_record["camera"]["right"]["p1"] = current.right.p1;
+  stage_record["camera"]["right"]["p2"] = current.right.p2;
+  stage_record["camera"]["right"]["k3"] = current.right.k3;
+
+  std::vector<double> R_vec(9);
+  std::vector<double> t_vec(3);
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      R_vec[r * 3 + c] = current.extrinsics.R.at<double>(r, c);
+    }
+  }
+  for (int i = 0; i < 3; ++i) {
+    t_vec[i] = current.extrinsics.t.at<double>(i, 0);
+  }
+  stage_record["camera"]["extrinsics"]["R"] = R_vec;
+  stage_record["camera"]["extrinsics"]["t"] = t_vec;
+
+  // 如果有真值，记录对比信息
+  if (has_ground_truth_) {
+    // 左相机内参差异
+    stage_record["diff_vs_gt"]["left"]["fx"] = current.left.fx - ground_truth_.left.fx;
+    stage_record["diff_vs_gt"]["left"]["fy"] = current.left.fy - ground_truth_.left.fy;
+    stage_record["diff_vs_gt"]["left"]["cx"] = current.left.cx - ground_truth_.left.cx;
+    stage_record["diff_vs_gt"]["left"]["cy"] = current.left.cy - ground_truth_.left.cy;
+
+    // 右相机内参差异
+    stage_record["diff_vs_gt"]["right"]["fx"] = current.right.fx - ground_truth_.right.fx;
+    stage_record["diff_vs_gt"]["right"]["fy"] = current.right.fy - ground_truth_.right.fy;
+    stage_record["diff_vs_gt"]["right"]["cx"] = current.right.cx - ground_truth_.right.cx;
+    stage_record["diff_vs_gt"]["right"]["cy"] = current.right.cy - ground_truth_.right.cy;
+
+    // 外参差异
+    const double tx_diff = current.extrinsics.t.at<double>(0, 0) - ground_truth_.extrinsics.t.at<double>(0, 0);
+    const double ty_diff = current.extrinsics.t.at<double>(1, 0) - ground_truth_.extrinsics.t.at<double>(1, 0);
+    const double tz_diff = current.extrinsics.t.at<double>(2, 0) - ground_truth_.extrinsics.t.at<double>(2, 0);
+
+    stage_record["diff_vs_gt"]["extrinsics"]["t"] = {tx_diff, ty_diff, tz_diff};
+
+    // 基线距离对比
+    const double baseline_current = std::sqrt(
+        current.extrinsics.t.at<double>(0, 0) * current.extrinsics.t.at<double>(0, 0) +
+        current.extrinsics.t.at<double>(1, 0) * current.extrinsics.t.at<double>(1, 0) +
+        current.extrinsics.t.at<double>(2, 0) * current.extrinsics.t.at<double>(2, 0));
+    const double baseline_gt = std::sqrt(
+        ground_truth_.extrinsics.t.at<double>(0, 0) * ground_truth_.extrinsics.t.at<double>(0, 0) +
+        ground_truth_.extrinsics.t.at<double>(1, 0) * ground_truth_.extrinsics.t.at<double>(1, 0) +
+        ground_truth_.extrinsics.t.at<double>(2, 0) * ground_truth_.extrinsics.t.at<double>(2, 0));
+    stage_record["diff_vs_gt"]["extrinsics"]["baseline"] = baseline_current - baseline_gt;
+
+    // 旋转误差
+    cv::Mat R_diff = current.extrinsics.R * ground_truth_.extrinsics.R.t();
+    const double tr = R_diff.at<double>(0, 0) + R_diff.at<double>(1, 1) + R_diff.at<double>(2, 2);
+    double cos_theta = (tr - 1.0) * 0.5;
+    cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
+    const double rot_error_deg = std::acos(cos_theta) * 57.2957795130823208768;
+    stage_record["diff_vs_gt"]["extrinsics"]["rotation_error_deg"] = rot_error_deg;
+  }
+
+  optimization_history_.push_back(stage_record);
+}
+
 bool OfflineStereoBA::Solve(StereoCamera& result)
 {
   if (!BuildTracks()) {
@@ -1053,8 +1146,10 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                 << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                 << step_final_rmse << " px" << std::endl;
 
-      // 输出当前结果与真值的对比
-      PrintCurrentVsGroundTruth("Incremental BA - Frame " + std::to_string(i + 1));
+      // 输出和记录当前结果与真值的对比
+      std::string stage_name = "Incremental BA - Frame " + std::to_string(i + 1);
+      PrintCurrentVsGroundTruth(stage_name);
+      RecordOptimizationStage(stage_name, step_final_rmse);
     }
 
     if (options_.global_opt_interval > 0 &&
@@ -1078,8 +1173,10 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                   << global_final_rmse << " px" << std::endl;
 
-        // 输出当前结果与真值的对比
-        PrintCurrentVsGroundTruth("Periodic Global BA - Frame " + std::to_string(i + 1));
+        // 输出和记录当前结果与真值的对比
+        std::string stage_name = "Periodic Global BA - Frame " + std::to_string(i + 1);
+        PrintCurrentVsGroundTruth(stage_name);
+        RecordOptimizationStage(stage_name, global_final_rmse);
       }
     }
   }
@@ -1100,8 +1197,9 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   std::cout << "Reprojection error: init=" << std::fixed << std::setprecision(4) << init_reproj_error_
             << " px, final=" << final_reproj_error_ << " px" << std::endl;
 
-  // 输出最终优化结果与真值的对比
+  // 输出和记录最终优化结果与真值的对比
   PrintCurrentVsGroundTruth("Final Global BA");
+  RecordOptimizationStage("Final Global BA", final_reproj_error_);
 
   const bool converged = (summary_.termination_type == ceres::CONVERGENCE ||
                           summary_.termination_type == ceres::NO_CONVERGENCE);

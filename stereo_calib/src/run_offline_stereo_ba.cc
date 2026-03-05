@@ -593,6 +593,9 @@ int main(int argc, char** argv)
   out["init_reproj_error"] = optimizer.init_reproj_error();
   out["final_reproj_error"] = optimizer.final_reproj_error();
 
+  // 添加优化历史记录
+  out["optimization_history"] = optimizer.GetOptimizationHistory();
+
   if (has_gt) {
     out["gt_source"] = gt_source;
     out["diff_vs_gt"] = {

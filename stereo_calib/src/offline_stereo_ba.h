@@ -3,6 +3,7 @@
 
 #include <ceres/ceres.h>
 #include <opencv2/core.hpp>
+#include <nlohmann/json.hpp>
 
 #include <string>
 #include <vector>
@@ -59,6 +60,9 @@ class OfflineStereoBA {
 
   double init_reproj_error() const { return init_reproj_error_; }
   double final_reproj_error() const { return final_reproj_error_; }
+
+  // 获取所有优化阶段的历史记录（JSON格式）
+  std::vector<nlohmann::json> GetOptimizationHistory() const { return optimization_history_; }
 
  private:
   struct TrackObservation {
@@ -142,7 +146,11 @@ class OfflineStereoBA {
   bool has_ground_truth_ = false;
   StereoCamera ground_truth_;
 
+  // Optimization history for each stage
+  std::vector<nlohmann::json> optimization_history_;
+
   void PrintCurrentVsGroundTruth(const std::string& stage_name) const;
+  void RecordOptimizationStage(const std::string& stage_name, double reproj_error);
 };
 
 }  // namespace stereocalib
