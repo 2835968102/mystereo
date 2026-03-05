@@ -767,7 +767,8 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
                                           int max_num_iterations,
                                           ceres::Solver::Summary& summary,
                                           double& init_rmse,
-                                          double& final_rmse)
+                                          double& final_rmse,
+                                          int frame_to_optimize)
 {
   ceres::Problem problem;
   size_t active_residuals = 0;
@@ -864,13 +865,29 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
     problem.SetManifold(intrinsics_right_.data(), new ceres::SubsetManifold(9, fixed_intrinsic_indices));
     set_intrinsics_bounds(intrinsics_right_.data(), input_.init_camera.right);
   }
+
+  // 固定帧的位姿（根据优化模式决定哪些帧需要固定）
   for (size_t fi = 0; fi < frames_.size(); ++fi) {
     if (!problem.HasParameterBlock(frames_[fi].rvec.data())) {
       continue;
     }
-    if (static_cast<int>(fi) == fixed_frame_idx_ ||
-        fi >= active_frames.size() ||
-        !active_frames[fi]) {
+
+    bool should_fix = false;
+
+    // 模式1：增量BA模式 - 只优化指定的新注册帧
+    if (frame_to_optimize >= 0) {
+      // 固定除了新注册帧之外的所有帧
+      should_fix = (static_cast<int>(fi) != frame_to_optimize);
+    }
+    // 模式2：全局BA模式 - 优化所有已注册帧（除参考帧外）
+    else {
+      // 固定参考帧和未激活的帧
+      should_fix = (static_cast<int>(fi) == fixed_frame_idx_ ||
+                    fi >= active_frames.size() ||
+                    !active_frames[fi]);
+    }
+
+    if (should_fix) {
       problem.SetParameterBlockConstant(frames_[fi].rvec.data());
     }
   }
@@ -934,6 +951,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     active_frames[frame_idx] = 1;
     successful_registrations++;
 
+    // 增量BA：只优化当前新注册的帧
     ceres::Solver::Summary incremental_summary;
     double step_init_rmse = 0.0;
     double step_final_rmse = 0.0;
@@ -941,7 +959,8 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                             options_.incremental_max_iter,
                             incremental_summary,
                             step_init_rmse,
-                            step_final_rmse)) {
+                            step_final_rmse,
+                            frame_idx)) {  // 传入当前新注册的帧索引
       if (!have_rmse) {
         init_reproj_error_ = step_init_rmse;
         have_rmse = true;
@@ -955,6 +974,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
 
     if (options_.global_opt_interval > 0 &&
         successful_registrations % options_.global_opt_interval == 0) {
+      // 周期性全局BA：优化所有已注册帧（除参考帧外）
       ceres::Solver::Summary periodic_summary;
       double global_init_rmse = 0.0;
       double global_final_rmse = 0.0;
@@ -962,7 +982,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                               options_.max_iter,
                               periodic_summary,
                               global_init_rmse,
-                              global_final_rmse)) {
+                              global_final_rmse)) {  // 未传入frame_to_optimize，使用默认值-1（全局BA模式）
         if (!have_rmse) {
           init_reproj_error_ = global_init_rmse;
           have_rmse = true;
@@ -976,13 +996,13 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     }
   }
 
-  // Final global optimization using all frames.
+  // 最终全局BA：优化所有帧（除参考帧外）
   std::fill(active_frames.begin(), active_frames.end(), 1);
   if (!RunBundleAdjustment(active_frames,
                            options_.max_iter,
                            summary_,
                            init_reproj_error_,
-                           final_reproj_error_)) {
+                           final_reproj_error_)) {  // 未传入frame_to_optimize，使用默认值-1（全局BA模式）
     return false;
   }
 

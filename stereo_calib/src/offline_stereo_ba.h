@@ -108,7 +108,8 @@ class OfflineStereoBA {
                            int max_num_iterations,
                            ceres::Solver::Summary& summary,
                            double& init_rmse,
-                           double& final_rmse);
+                           double& final_rmse,
+                           int frame_to_optimize = -1);
   void ApplyResult(StereoCamera& result);
 
  private:
