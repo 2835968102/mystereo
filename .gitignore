@@ -18,6 +18,7 @@ Makefile
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # Results
 result/
