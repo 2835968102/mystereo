@@ -374,8 +374,8 @@ int main(int argc, char** argv)
   std::string input_path;
   std::string output_path;
   std::string gt_param_file;
-  const std::string kForcedInitPathA = "stereo_calib/example_init_params.txt";
-  const std::string kForcedInitPathB = "../stereo_calib/example_init_params.txt";
+  const std::string kForcedInitPathA = "stereo_calib/data/example_init_params.txt";
+  const std::string kForcedInitPathB = "../stereo_calib/data/example_init_params.txt";
 
   OfflineStereoBA::Options options;
 

@@ -314,9 +314,9 @@ cmake --build . -j$(nproc) --target run_offline_stereo_ba
 
 ```bash
 build/bin/run_offline_stereo_ba \
-    --input stereo_calib/scripts/matches.json \
+    --input stereo_calib/data/matches.json \
+    --gt_param_file stereo_calib/data/camera_params.json \
     --output stereo_calib/result/offline_ba_result.json \
-    --gt_param_file stereo_calib/scripts/camera_params.json \
     --max_iter 40 \
     --incremental_max_iter 10 \
     --global_opt_interval 5 \
