@@ -1,2 +1,0 @@
-/usr/bin/ar qc libstereo_core.a CMakeFiles/stereo_core.dir/src/stereo_factors.cc.o CMakeFiles/stereo_core.dir/src/stereo_optimizer.cc.o CMakeFiles/stereo_core.dir/src/offline_stereo_ba.cc.o
-/usr/bin/ranlib libstereo_core.a
