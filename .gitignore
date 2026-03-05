@@ -24,6 +24,10 @@ Makefile
 result/
 */result/
 
+# Data
+data/
+*/data/
+
 # Blender files
 blender-file/
 
