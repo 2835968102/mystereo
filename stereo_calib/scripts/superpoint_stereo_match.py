@@ -357,8 +357,6 @@ def main():
         match_list = []
         for k in range(n_matches):
             score = float(matches[2, k])
-            if score >= 0.4:
-                continue
             i, j = int(matches[0, k]), int(matches[1, k])
             match_list.append({
                 'left':  [round(float(pts_l[0, i]), 2),
