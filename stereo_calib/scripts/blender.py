@@ -2,6 +2,7 @@ import bpy
 import math
 import json
 import os
+import random
 import mathutils
 
 
@@ -524,44 +525,306 @@ def render_stereo_animation(output_folder="//stereo_animation/", file_format='PN
     print(f"动画渲染完成！共 {total_frames} 帧")
 
 
+# ─── 绕点随机旋转渲染 ──────────────────────────────────────────────────────────
+
+def create_stereo_camera_for_orbit(baseline=0.2, lens=35, sensor_width=36):
+    """
+    创建用于绕轨道旋转渲染的双目摄像头（无平面父级，rig 可自由移动到世界坐标任意位置）
+
+    参数:
+        baseline:     双目基线距离（米），默认 0.2m
+        lens:         镜头焦距（mm），默认 35mm
+        sensor_width: 传感器宽度（mm），默认 36mm
+
+    返回:
+        (camera_rig, camera_left, camera_right)
+    """
+    # 左摄像头
+    bpy.ops.object.camera_add(location=(0, 0, 0))
+    camera_left = bpy.context.object
+    camera_left.name = "Camera_Left"
+    camera_left.data.name = "Camera_Left_Data"
+
+    # 右摄像头
+    bpy.ops.object.camera_add(location=(0, 0, 0))
+    camera_right = bpy.context.object
+    camera_right.name = "Camera_Right"
+    camera_right.data.name = "Camera_Right_Data"
+
+    for camera in [camera_left, camera_right]:
+        camera.data.lens = lens
+        camera.data.sensor_width = sensor_width
+        camera.data.clip_start = 0.1
+        camera.data.clip_end = 1000
+        # 默认摄像头朝 -Z，旋转 90° 使其朝局部 +Y（装备 +Y 即为看向方向）
+        camera.rotation_euler = (math.radians(90), 0, 0)
+
+    # 创建装备空对象
+    bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0))
+    camera_rig = bpy.context.object
+    camera_rig.name = "Stereo_Camera_Rig"
+    camera_rig.empty_display_size = 0.3
+
+    # 设置父子关系，摄像头沿局部 X 轴对称放置
+    camera_left.parent = camera_rig
+    camera_right.parent = camera_rig
+    camera_left.location = (-baseline / 2, 0, 0)
+    camera_right.location = (baseline / 2, 0, 0)
+
+    bpy.context.scene.camera = camera_left
+
+    print(f"双目轨道摄像头创建成功！基线: {baseline}m，焦距: {lens}mm")
+    return camera_rig, camera_left, camera_right
+
+
+def render_panoramic_stereo(
+    output_folder="//stereo_panoramic/",
+    num_images=60,
+    camera_position=(0, 0, 2),
+    azimuth_range=(0, 360),
+    elevation_range=(-80, 80),
+    random_seed=None,
+    file_format='PNG',
+    rig_name="Stereo_Camera_Rig",
+    export_poses=True,
+):
+    """
+    相机固定在 camera_position 原地随机旋转，拍摄360°全景图像序列。
+
+    相机不移动，仅在原地随机朝向各个方向（上下左右），
+    类似将双目相机固定在三脚架上旋转拍摄全景。
+
+    参数:
+        output_folder:    输出文件夹（支持 // 相对路径）
+        num_images:       渲染图像对数（每对含左+右各1张）
+        camera_position:  相机固定位置 (x, y, z)
+        azimuth_range:    水平方位角随机采样范围（度），如 (0, 360) 为全水平覆盖
+                          0° 为 +X 方向，逆时针增大
+        elevation_range:  俯仰角随机采样范围（度），如 (-80, 80)
+                          0° 为水平，+90° 为正上，-90° 为正下
+        random_seed:      随机种子；None 表示每次不同
+        file_format:      图像格式 ('PNG', 'JPEG', 'OPEN_EXR')
+        rig_name:         Blender 中相机装备的对象名称
+        export_poses:     是否为每对图像输出 camera_params_XXXX.json
+
+    输出文件命名:
+        left_0000.png / right_0000.png   —— 图像
+        camera_params_0000.json          —— 该帧摄像头参数（内参 + 立体外参 + 位姿）
+        camera_poses_summary.json        —— 所有帧汇总
+    """
+    scene = bpy.context.scene
+    camera_left = bpy.data.objects.get("Camera_Left")
+    camera_right = bpy.data.objects.get("Camera_Right")
+    camera_rig = bpy.data.objects.get(rig_name)
+
+    if not camera_left or not camera_right:
+        print("错误：未找到双目摄像头！请先运行 create_stereo_camera_for_orbit()")
+        return
+    if not camera_rig:
+        print(f"错误：未找到相机装备 '{rig_name}'！")
+        return
+
+    # ── 保存原始状态 ──────────────────────────────────────────────────────────
+    original_camera = scene.camera
+    original_filepath = scene.render.filepath
+    original_location = camera_rig.location.copy()
+    original_rotation = camera_rig.rotation_euler.copy()
+
+    scene.render.image_settings.file_format = file_format
+    ext = "jpg" if file_format == 'JPEG' else file_format.lower()
+
+    if random_seed is not None:
+        random.seed(random_seed)
+
+    # ── 静态参数（内参、分辨率） ───────────────────────────────────────────────
+    left_intr = compute_camera_intrinsics(camera_left)
+    right_intr = compute_camera_intrinsics(camera_right)
+    width = scene.render.resolution_x
+    height = scene.render.resolution_y
+
+    abs_output = bpy.path.abspath(output_folder)
+    os.makedirs(abs_output, exist_ok=True)
+
+    # 将相机装备固定到指定位置（整个渲染过程不再移动）
+    cam_pos_vec = mathutils.Vector(camera_position)
+    if camera_rig.parent:
+        camera_rig.location = camera_rig.parent.matrix_world.inverted() @ cam_pos_vec
+    else:
+        camera_rig.location = cam_pos_vec
+
+    el_min, el_max = elevation_range
+    az_min, az_max = azimuth_range
+    all_frames_info = []
+
+    print(f"开始随机全景渲染（相机原地旋转）")
+    print(f"  图像对数:   {num_images}")
+    print(f"  相机位置:   {camera_position}")
+    print(f"  方位角范围: [{az_min}°, {az_max}°]")
+    print(f"  俯仰角范围: [{el_min}°, {el_max}°]")
+    print(f"  随机种子:   {random_seed}")
+
+    for idx in range(num_images):
+        # 随机采样方位角和俯仰角
+        azimuth_deg   = random.uniform(az_min, az_max)
+        elevation_deg = random.uniform(el_min, el_max)
+        az_rad = math.radians(azimuth_deg)
+        el_rad = math.radians(elevation_deg)
+
+        # 将方位角+俯仰角转为朝向向量（球坐标→单位向量）
+        # 装备 +Y 轴为摄像头朝向，+Z 尽量朝上
+        cos_el = math.cos(el_rad)
+        look_dir = mathutils.Vector((
+            cos_el * math.cos(az_rad),
+            cos_el * math.sin(az_rad),
+            math.sin(el_rad),
+        ))
+        rot_quat = look_dir.to_track_quat('Y', 'Z')
+
+        if camera_rig.parent:
+            parent_rot_inv = camera_rig.parent.matrix_world.to_3x3().inverted()
+            local_rot_mat = parent_rot_inv @ rot_quat.to_matrix()
+            camera_rig.rotation_euler = local_rot_mat.to_euler()
+        else:
+            camera_rig.rotation_euler = rot_quat.to_euler()
+
+        bpy.context.view_layer.update()
+
+        # ── 文件命名与渲染 ────────────────────────────────────────────────────
+        left_name = f"left_{idx:04d}"
+        right_name = f"right_{idx:04d}"
+
+        scene.camera = camera_left
+        scene.render.filepath = output_folder + left_name
+        bpy.ops.render.render(write_still=True)
+
+        scene.camera = camera_right
+        scene.render.filepath = output_folder + right_name
+        bpy.ops.render.render(write_still=True)
+
+        # ── 导出当前帧摄像头参数 ──────────────────────────────────────────────
+        if export_poses:
+            R_l, t_l = get_world_to_cam_opencv(camera_left)
+            R_r, t_r = get_world_to_cam_opencv(camera_right)
+
+            # 立体外参：右相机在左相机 OpenCV 坐标系中的位置
+            M_left_inv = _BLENDER_TO_OPENCV @ camera_left.matrix_world.inverted()
+            C_r = M_left_inv @ camera_right.matrix_world.translation.to_4d()
+            t_stereo = [-C_r.x, -C_r.y, -C_r.z]
+            R_stereo = [1.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0,
+                        0.0, 0.0, 1.0]
+
+            frame_params = {
+                "image_size": {"width": width, "height": height},
+                "left":  left_intr,
+                "right": right_intr,
+                "extrinsics": {
+                    "R": R_stereo,
+                    "t": t_stereo,
+                },
+                "left_pose":  {"R": R_l, "t": t_l},
+                "right_pose": {"R": R_r, "t": t_r},
+                "meta": {
+                    "index":           idx,
+                    "azimuth_deg":     round(azimuth_deg, 4),
+                    "elevation_deg":   round(elevation_deg, 4),
+                    "camera_position": list(camera_position),
+                    "left_image":      f"{left_name}.{ext}",
+                    "right_image":     f"{right_name}.{ext}",
+                },
+            }
+
+            params_path = os.path.join(abs_output, f"camera_params_{idx:04d}.json")
+            with open(params_path, "w", encoding="utf-8") as f:
+                json.dump(frame_params, f, indent=2)
+
+            all_frames_info.append({
+                "index":         idx,
+                "azimuth_deg":   round(azimuth_deg, 4),
+                "elevation_deg": round(elevation_deg, 4),
+                "left_image":    f"{left_name}.{ext}",
+                "right_image":   f"{right_name}.{ext}",
+                "left_pose":     {"R": R_l, "t": t_l},
+                "right_pose":    {"R": R_r, "t": t_r},
+            })
+
+        progress = (idx + 1) / num_images * 100
+        print(f"  [{progress:5.1f}%] ({idx+1:4d}/{num_images})  "
+              f"az={azimuth_deg:6.1f}°  el={elevation_deg:5.1f}°")
+
+    # ── 导出汇总 JSON ─────────────────────────────────────────────────────────
+    if export_poses and all_frames_info:
+        summary = {
+            "description":    "随机全景双目渲染位姿汇总（每帧详细参数见 camera_params_XXXX.json）",
+            "convention":     "X_cam = R @ X_world + t  (OpenCV约定: X右 Y下 Z前)",
+            "camera_position": list(camera_position),
+            "azimuth_range":   list(azimuth_range),
+            "elevation_range": list(elevation_range),
+            "random_seed":     random_seed,
+            "num_images":      num_images,
+            "frames":          all_frames_info,
+        }
+        summary_path = os.path.join(abs_output, "camera_poses_summary.json")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+        print(f"汇总位姿已导出: {summary_path}")
+
+    # ── 恢复原始状态 ──────────────────────────────────────────────────────────
+    camera_rig.location = original_location
+    camera_rig.rotation_euler = original_rotation
+    scene.camera = original_camera
+    scene.render.filepath = original_filepath
+
+    print(f"随机全景渲染完成！共 {num_images} 对 / {num_images * 2} 张图像")
+
+
 # ─── 主函数 ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # 步骤1: 创建测试场景（可选，场景类型: "basic" / "multi_depth" / "grid"）
-    # create_test_scene("basic")
+    # ── 参数配置 ──────────────────────────────────────────────────────────────
+    # 相机固定位置（x, y, z），相机在此处原地旋转拍全景
+    CAMERA_POSITION = (0.0, 0.0, 2.0)
 
-    # 步骤2: 创建带双目摄像头的平面
-    plane, rig, cam_l, cam_r = create_plane_with_stereo_camera(
-        baseline=0.2,             # 20cm 基线距离
-        camera_height=2.0,        # 摄像头在平面上方2米
-        plane_size=2.0,           # 2m × 2m 平面
-        plane_location=(0, 0, 0)  # 平面置于原点
+    # 渲染图像对数（每对 = 左 + 右各一张）
+    NUM_IMAGES = 30
+
+    # 水平方位角随机采样范围（度）：0°=+X方向，逆时针增大；(0, 360) 为全水平覆盖
+    AZIMUTH_RANGE = (0, 360)
+
+    # 俯仰角随机采样范围（度）：0°=水平，+90°=朝正上，-90°=朝正下
+    ELEVATION_RANGE = (-90, 90)
+
+    # 随机种子（设为 None 则每次不同）
+    RANDOM_SEED = 42
+
+    # 输出目录
+    OUTPUT_FOLDER = "//stereo_panoramic/"
+
+    # ── 步骤1：可选，在场景中添加测试物体 ────────────────────────────────────
+    # create_test_scene("basic")   # "basic" / "multi_depth" / "grid"
+
+    # ── 步骤2：创建双目摄像头 ─────────────────────────────────────────────────
+    # baseline:     双目基线距离（米）
+    # lens:         镜头焦距（mm）
+    # sensor_width: 传感器宽度（mm）
+    rig, cam_l, cam_r = create_stereo_camera_for_orbit(
+        baseline=0.2,
+        lens=35,
+        sensor_width=36,
     )
 
-    # 步骤3: 渲染360°旋转图像，并自动导出摄像头参数到 stereo_360/ 目录下：
-    #   - camera_params.json : 内参 + 立体外参（兼容 stereo_calib 格式）
-    #   - camera_poses.json  : 每帧左右摄像头的世界->摄像头变换
-    render_stereo_360_rotation(
-        output_folder="//stereo_360/",
-        angle_step=15,          # 每15°一帧（共24个位置，48张图）
+    # ── 步骤3：原地随机旋转渲染360°全景 ──────────────────────────────────────
+    # 输出文件（以 NUM_IMAGES=60 为例）：
+    #   left_0000.png … left_0059.png      右侧同理
+    #   camera_params_0000.json …          每帧内参 + 立体外参 + 左右位姿
+    #   camera_poses_summary.json          所有帧汇总
+    render_panoramic_stereo(
+        output_folder=OUTPUT_FOLDER,
+        num_images=NUM_IMAGES,
+        camera_position=CAMERA_POSITION,
+        azimuth_range=AZIMUTH_RANGE,
+        elevation_range=ELEVATION_RANGE,
+        random_seed=RANDOM_SEED,
         file_format='PNG',
-        export_poses=True       # 导出摄像头参数
+        export_poses=True,
     )
-
-    # ── 其他可选功能 ──────────────────────────────────────────────────────────
-
-    # 仅导出摄像头参数（不渲染）
-    # export_camera_params("//camera_params.json")
-
-    # 渲染单张双目图像
-    # render_stereo_images(output_path="//stereo_output_", file_format='PNG')
-
-    # 调整基线距离
-    # adjust_stereo_baseline(0.5)  # 调整为50cm
-
-    # 添加飞行动画（"circle" / "straight" / "figure8"）
-    # animate_plane_flight(plane_name="Camera_Plane", flight_path="circle",
-    #                      radius=20, height=5, start_frame=1, end_frame=250)
-
-    # 渲染整段动画
-    # render_stereo_animation(output_folder="//stereo_animation/", file_format='PNG')
