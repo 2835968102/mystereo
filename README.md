@@ -377,17 +377,82 @@ cat result.json
 
 ---
 
+## 第三步：可视化 BA 优化历史
+
+### 环境准备（Conda）
+
+本项目为 Python 可视化脚本提供了独立的 Conda 环境，包含 `matplotlib` 和 `numpy`。
+
+```bash
+# 创建环境（仅需执行一次）
+conda env create -f environment.yml
+
+# 激活环境
+conda activate stereo-calib-vis
+```
+
+> 环境名称：`stereo-calib-vis`，Python 3.10，依赖见 `environment.yml`。
+
+### 脚本路径
+
+```
+stereo_calib/scripts/plot_ba_history.py
+```
+
+### 功能说明
+
+从 `offline_ba_result.json` 的 `optimization_history` 字段读取每次优化迭代的重投影误差，绘制折线图并：
+
+- 以蓝色圆点标注每次**增量 BA（Incremental BA）**
+- 以红色星形标注每次**全局优化（Global BA / Final Global BA）**
+- 在全局优化点处绘制垂直虚线，便于定位
+- 标注初始误差与最终误差参考线
+
+### 用法
+
+```bash
+# 激活环境
+conda activate stereo-calib-vis
+
+# 弹窗显示（在项目根目录运行）
+python stereo_calib/scripts/plot_ba_history.py \
+    --input stereo_calib/result/offline_ba_result.json
+
+# 保存为图片
+python stereo_calib/scripts/plot_ba_history.py \
+    --input stereo_calib/result/offline_ba_result.json \
+    --output ba_history.png
+```
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--input` / `-i` | `stereo_calib/result/offline_ba_result.json` | result JSON 文件路径 |
+| `--output` / `-o` | （无，弹窗显示） | 输出图片路径（支持 `.png` / `.pdf` 等） |
+
+### 阶段类型说明
+
+| 阶段名称 | 类型 | 图中标注 |
+|----------|------|----------|
+| `Incremental BA - Frame N` | 增量 BA | 蓝色圆点 |
+| `Periodic Global BA - Frame N` | 周期性全局 BA | 红色星形 |
+| `Final Global BA` | 最终全局 BA | 红色星形 |
+
+---
+
 ## 项目结构
 
 ```
 .
+├── environment.yml                    # Conda 可视化环境（stereo-calib-vis）
 ├── matchmodel/
 │   └── SuperPointPretrainedNetwork/
 │       └── superpoint_v1.pth          # SuperPoint 预训练权重
 ├── stereo_calib/
 │   ├── scripts/
 │   │   ├── blender.py                 # Blender 仿真数据生成（Step 0）
-│   │   └── superpoint_stereo_match.py # 特征匹配脚本（Step 1）
+│   │   ├── superpoint_stereo_match.py # 特征匹配脚本（Step 1）
+│   │   ├── eval_stereo.py             # 评估工具（与 GT 对比）
+│   │   └── plot_ba_history.py         # BA 优化历史可视化（Step 3）
 │   ├── src/
 │   │   ├── run_stereo_calib.cc        # 标定程序入口（Step 2）
 │   │   ├── stereo_optimizer.cc/.h     # Ceres 优化器
