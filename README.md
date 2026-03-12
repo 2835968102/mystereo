@@ -93,7 +93,9 @@ conda activate stereo-calib-vis
 python run_pipeline_panoramic_01.py
 
 # 跳过特征匹配，直接跑 BA（复用已有 matches JSON）
-python run_pipeline_panoramic_01.py --skip_match \
+python run_pipeline.py \
+    --scene panoramic_01 \
+    --skip_match \
     --max_iter 40 \
     --incremental_max_iter 10 \
     --global_opt_interval 5 \

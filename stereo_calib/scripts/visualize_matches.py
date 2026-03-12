@@ -322,11 +322,12 @@ def main():
         result_dir = os.path.join(os.path.dirname(os.path.abspath(args.input)),
                                   "..", "result")
         os.makedirs(result_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(args.input))[0]
         if args.pair:
             safe_key = args.pair.replace("/", "_")
-            filename = f"matches_pair_{safe_key}.png"
+            filename = f"{stem}_pair_{safe_key}.png"
         else:
-            filename = "matches_overview.png"
+            filename = f"{stem}_overview.png"
         out_path = os.path.join(result_dir, filename)
 
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
