@@ -341,10 +341,7 @@ bool OfflineStereoBA::BuildTracks()
       cv::Mat inliers;
       bool geometry_ok = false;
 
-      if (a_ok && b_ok && a_left == b_left) {
-        const cv::Mat H = cv::findHomography(pts_a, pts_b, cv::RANSAC, 3.0, inliers, 2000, 0.995);
-        geometry_ok = !H.empty();
-      } else {
+      {
         const cv::Mat F = cv::findFundamentalMat(pts_a, pts_b, cv::FM_RANSAC, 2.0, 0.995, inliers);
         geometry_ok = !F.empty();
       }
