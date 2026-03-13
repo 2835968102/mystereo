@@ -1302,6 +1302,29 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   PrintCurrentVsGroundTruth("Final Global BA");
   RecordOptimizationStage("Final Global BA", final_reproj_error_);
 
+  // ── FOV sanity check helper ───────────────────────────────────────────────
+  // Use the principal point (cx) as a proxy for the half image width.
+  // Horizontal half-FOV = atan(cx / fx).  Reject results outside [10°, 160°].
+  const double kMinFovDeg = 10.0;
+  const double kMaxFovDeg = 160.0;
+  const double kDegPerRad = 180.0 / M_PI;
+
+  auto check_fov = [&](const std::vector<double>& intr, const char* name) -> bool {
+    const double fx = intr[0];
+    const double cx = intr[2];
+    if (fx <= 0.0 || cx <= 0.0) {
+      std::cerr << name << " has non-positive fx or cx after BA." << std::endl;
+      return false;
+    }
+    const double fov_deg = 2.0 * std::atan(cx / fx) * kDegPerRad;
+    if (fov_deg < kMinFovDeg || fov_deg > kMaxFovDeg) {
+      std::cerr << name << " estimated FOV " << fov_deg << " deg is outside ["
+                << kMinFovDeg << ", " << kMaxFovDeg << "] deg." << std::endl;
+      return false;
+    }
+    return true;
+  };
+
   // ── Iterative post-BA outlier rejection ───────────────────────────────────
   for (int round = 0; round < options_.max_outlier_rejection_rounds; ++round) {
     const int n_rejected = RejectOutliers(options_.outlier_rejection_threshold);
@@ -1321,6 +1344,12 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
               << rej_final_rmse << " px" << std::endl;
     PrintCurrentVsGroundTruth(stage_name);
     RecordOptimizationStage(stage_name, rej_final_rmse);
+
+    // 每轮 BA 后立即检查 FOV，内参发散则提前终止
+    if (!check_fov(intrinsics_left_,  "Left camera") ||
+        !check_fov(intrinsics_right_, "Right camera")) {
+      break;
+    }
   }
 
   const bool converged = (summary_.termination_type == ceres::CONVERGENCE ||
@@ -1335,32 +1364,8 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
               << " px exceeds threshold " << options_.max_reproj_error << " px." << std::endl;
   }
 
-  // ── FOV sanity check ──────────────────────────────────────────────────────
-  // Use the principal point (cx) as a proxy for the half image width.
-  // Horizontal half-FOV = atan(cx / fx).  Reject results outside [10°, 160°].
-  const double kMinFovDeg = 10.0;
-  const double kMaxFovDeg = 160.0;
-  const double kDegPerRad = 180.0 / M_PI;
-  bool pass_fov = true;
-
-  auto check_fov = [&](const std::vector<double>& intr, const char* name) -> bool {
-    const double fx = intr[0];
-    const double cx = intr[2];
-    if (fx <= 0.0 || cx <= 0.0) {
-      std::cerr << name << " has non-positive fx or cx after BA." << std::endl;
-      return false;
-    }
-    const double fov_deg = 2.0 * std::atan(cx / fx) * kDegPerRad;
-    if (fov_deg < kMinFovDeg || fov_deg > kMaxFovDeg) {
-      std::cerr << name << " estimated FOV " << fov_deg << " deg is outside ["
-                << kMinFovDeg << ", " << kMaxFovDeg << "] deg." << std::endl;
-      return false;
-    }
-    return true;
-  };
-
-  pass_fov = check_fov(intrinsics_left_,  "Left camera") &&
-             check_fov(intrinsics_right_, "Right camera");
+  const bool pass_fov = check_fov(intrinsics_left_,  "Left camera") &&
+                        check_fov(intrinsics_right_, "Right camera");
 
   ApplyResult(result);
   return converged && pass_reproj && pass_fov;

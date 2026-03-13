@@ -48,7 +48,7 @@ def resolve_paths(scene: str):
         gt_file        = img_dir   / "camera_params_0000.json",
         tmp_cam_params = img_dir   / "camera_params.json",
         weights        = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth",
-        ba_bin         = PROJECT_ROOT / "build/bin/run_offline_stereo_ba",
+        ba_bin         = PROJECT_ROOT / "stereo_calib/build/bin/run_offline_stereo_ba",
         match_script   = PROJECT_ROOT / "stereo_calib/scripts/superpoint_stereo_match.py",
         plot_script    = PROJECT_ROOT / "stereo_calib/scripts/plot_ba_history.py",
     )

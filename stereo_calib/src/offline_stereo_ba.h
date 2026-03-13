@@ -46,7 +46,7 @@ class OfflineStereoBA {
     double baseline_prior_weight = 10.0;
     // Post-BA iterative outlier rejection
     double outlier_rejection_threshold = 2.0;  // pixels
-    int    max_outlier_rejection_rounds = 3;
+    int    max_outlier_rejection_rounds = 100;
   };
 
   OfflineStereoBA(const OfflineBAInput& input, const Options& options);
