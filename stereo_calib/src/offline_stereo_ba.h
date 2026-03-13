@@ -44,6 +44,9 @@ class OfflineStereoBA {
     double aspect_ratio_prior_weight = 1.0;
     double max_reproj_error = 20.0;
     double baseline_prior_weight = 10.0;
+    // Post-BA iterative outlier rejection
+    double outlier_rejection_threshold = 2.0;  // pixels
+    int    max_outlier_rejection_rounds = 3;
   };
 
   OfflineStereoBA(const OfflineBAInput& input, const Options& options);
@@ -69,6 +72,7 @@ class OfflineStereoBA {
     int frame_idx = -1;
     bool is_left = true;
     cv::Point2f px;
+    bool rejected = false;
   };
 
   struct Track {
@@ -117,6 +121,7 @@ class OfflineStereoBA {
                            double& init_rmse,
                            double& final_rmse,
                            int frame_to_optimize = -1);
+  int  RejectOutliers(double threshold);
   void ApplyResult(StereoCamera& result);
 
  private:

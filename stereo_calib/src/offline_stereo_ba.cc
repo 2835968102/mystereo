@@ -254,6 +254,11 @@ bool OfflineStereoBA::ParseImageName(const std::string& image_name, bool& is_lef
 
 bool OfflineStereoBA::BuildTracks()
 {
+  // RANSAC parameters used for fundamental-matrix filtering of match pairs.
+  const double kFmRansacThreshold  = 2.0;    // reprojection threshold (pixels)
+  const double kFmRansacConfidence = 0.995;
+  const int    kMinMatchesForRansac = 8;      // minimum points for 8-point algorithm
+
   std::unordered_map<std::string, int> image_index;
   images_.clear();
 
@@ -302,6 +307,9 @@ bool OfflineStereoBA::BuildTracks()
     return node_id;
   };
 
+  // ── Phase 1: Build union-find edges ───────────────────────────────────────
+  // For each image pair, score-filter matches, apply RANSAC geometry check,
+  // then unite the surviving feature nodes in the union-find structure.
   for (size_t i = 0; i < input_.pairs.size(); ++i) {
     const RawImagePair& pair = input_.pairs[i];
     if (pair.image_a == pair.image_b) {
@@ -336,13 +344,14 @@ bool OfflineStereoBA::BuildTracks()
       idx_map.push_back(static_cast<int>(k));
     }
 
-    bool pair_accepted = (pts_a.size() >= 8);
-    if (pts_a.size() >= 8) {
+    bool pair_accepted = (pts_a.size() >= static_cast<size_t>(kMinMatchesForRansac));
+    if (pts_a.size() >= static_cast<size_t>(kMinMatchesForRansac)) {
       cv::Mat inliers;
       bool geometry_ok = false;
 
       {
-        const cv::Mat F = cv::findFundamentalMat(pts_a, pts_b, cv::FM_RANSAC, 2.0, 0.995, inliers);
+        const cv::Mat F = cv::findFundamentalMat(pts_a, pts_b, cv::FM_RANSAC,
+                                                 kFmRansacThreshold, kFmRansacConfidence, inliers);
         geometry_ok = !F.empty();
       }
 
@@ -451,6 +460,11 @@ bool OfflineStereoBA::BuildTracks()
 
   std::unordered_map<int, std::vector<int> > comps;
   comps.reserve(nodes.size());
+
+  // ── Phase 2: Resolve components and build tracks ───────────────────────────
+  // Query the union-find root for every node to group them into connected
+  // components, then discard components that are too short or lack stereo
+  // observations in at least one frame.
   for (size_t i = 0; i < nodes.size(); ++i) {
     const int root = uf.Find(static_cast<int>(i));
     comps[root].push_back(static_cast<int>(i));
@@ -627,6 +641,35 @@ bool OfflineStereoBA::InitializeFrameRotations(std::vector<int>& registration_or
 
     CollectLeftLeftCorrespondences(best_from, best_to, pts_from, pts_to);
 
+    // ── Pixel-disparity filter ─────────────────────────────────────────────
+    // Reject correspondences whose inter-frame pixel displacement exceeds the
+    // threshold; very large motion likely indicates mis-matched tracks that
+    // would corrupt the pure-rotation estimate.
+    {
+      const double kMaxPixelDisp = 300.0;  // pixels
+      std::vector<cv::Point2f> filt_from, filt_to;
+      filt_from.reserve(pts_from.size());
+      filt_to.reserve(pts_to.size());
+      for (size_t i = 0; i < pts_from.size(); ++i) {
+        const double dx = pts_to[i].x - pts_from[i].x;
+        const double dy = pts_to[i].y - pts_from[i].y;
+        if (dx * dx + dy * dy <= kMaxPixelDisp * kMaxPixelDisp) {
+          filt_from.push_back(pts_from[i]);
+          filt_to.push_back(pts_to[i]);
+        }
+      }
+      pts_from.swap(filt_from);
+      pts_to.swap(filt_to);
+    }
+
+    if (pts_from.size() < 8) {
+      frames_[best_to].initialized = true;
+      frames_[best_to].rvec = frames_[best_from].rvec;
+      registration_order.push_back(best_to);
+      registered++;
+      continue;
+    }
+
     cv::Mat R_rel;
     if (!EstimatePureRotation(pts_from, pts_to, K, dist, R_rel)) {
       frames_[best_to].initialized = true;
@@ -777,6 +820,7 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
     int active_obs = 0;
     for (size_t oi = 0; oi < track.observations.size(); ++oi) {
       const TrackObservation& obs = track.observations[oi];
+      if (obs.rejected) continue;
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) {
         continue;
       }
@@ -792,6 +836,7 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
 
     for (size_t oi = 0; oi < track.observations.size(); ++oi) {
       const TrackObservation& obs = track.observations[oi];
+      if (obs.rejected) continue;
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) {
         continue;
       }
@@ -907,6 +952,65 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
   }
 
   return true;
+}
+
+// ─── Post-BA outlier rejection ────────────────────────────────────────────────
+//
+// Compute per-observation reprojection error with the current camera parameters
+// and mark those that exceed `threshold` pixels as rejected.  Returns the
+// number of newly rejected observations.
+
+int OfflineStereoBA::RejectOutliers(double threshold)
+{
+  const double thresh2 = threshold * threshold;
+  int rejected_count = 0;
+
+  // Pre-compute right-camera transform once.
+  const cv::Mat rvec_rl = (cv::Mat_<double>(3, 1) << extrinsics_[0], extrinsics_[1], extrinsics_[2]);
+  cv::Mat R_rl;
+  cv::Rodrigues(rvec_rl, R_rl);
+  const cv::Mat t_rl = (cv::Mat_<double>(3, 1) << extrinsics_[3], extrinsics_[4], extrinsics_[5]);
+
+  for (size_t ti = 0; ti < tracks_.size(); ++ti) {
+    Track& track = tracks_[ti];
+    const cv::Mat X_w = (cv::Mat_<double>(3, 1) << track.point3d[0], track.point3d[1], track.point3d[2]);
+
+    for (TrackObservation& obs : track.observations) {
+      if (obs.rejected) continue;
+      if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) continue;
+
+      // World → left camera frame.
+      const cv::Mat X_l = ToRotation(frames_[obs.frame_idx].rvec) * X_w;
+
+      cv::Mat X_cam = X_l;
+      const double* intr = intrinsics_left_.data();
+      if (!obs.is_left) {
+        X_cam = R_rl * X_l + t_rl;
+        intr = intrinsics_right_.data();
+      }
+
+      const double Z = X_cam.at<double>(2, 0);
+      if (Z <= 0.0) {
+        obs.rejected = true;
+        ++rejected_count;
+        continue;
+      }
+
+      double u, v;
+      ApplyDistAndProject(intr, X_cam.at<double>(0, 0) / Z, X_cam.at<double>(1, 0) / Z, u, v);
+
+      const double du = obs.px.x - u;
+      const double dv = obs.px.y - v;
+      if (du * du + dv * dv > thresh2) {
+        obs.rejected = true;
+        ++rejected_count;
+      }
+    }
+  }
+
+  std::cout << "[Outlier Rejection] Rejected " << rejected_count
+            << " observations above " << threshold << " px threshold" << std::endl;
+  return rejected_count;
 }
 
 void OfflineStereoBA::ApplyResult(StereoCamera& result)
@@ -1198,6 +1302,27 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   PrintCurrentVsGroundTruth("Final Global BA");
   RecordOptimizationStage("Final Global BA", final_reproj_error_);
 
+  // ── Iterative post-BA outlier rejection ───────────────────────────────────
+  for (int round = 0; round < options_.max_outlier_rejection_rounds; ++round) {
+    const int n_rejected = RejectOutliers(options_.outlier_rejection_threshold);
+    if (n_rejected == 0) break;
+
+    std::fill(active_frames.begin(), active_frames.end(), 1);
+    double rej_init_rmse = 0.0;
+    double rej_final_rmse = 0.0;
+    if (!RunBundleAdjustment(active_frames, options_.max_iter,
+                             summary_, rej_init_rmse, rej_final_rmse)) {
+      break;
+    }
+    final_reproj_error_ = rej_final_rmse;
+
+    const std::string stage_name = "Outlier Rejection BA - Round " + std::to_string(round + 1);
+    std::cout << "[" << stage_name << "] reproj_rmse=" << std::fixed << std::setprecision(4)
+              << rej_final_rmse << " px" << std::endl;
+    PrintCurrentVsGroundTruth(stage_name);
+    RecordOptimizationStage(stage_name, rej_final_rmse);
+  }
+
   const bool converged = (summary_.termination_type == ceres::CONVERGENCE ||
                           summary_.termination_type == ceres::NO_CONVERGENCE);
   const bool pass_reproj = (final_reproj_error_ <= options_.max_reproj_error);
@@ -1210,8 +1335,35 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
               << " px exceeds threshold " << options_.max_reproj_error << " px." << std::endl;
   }
 
+  // ── FOV sanity check ──────────────────────────────────────────────────────
+  // Use the principal point (cx) as a proxy for the half image width.
+  // Horizontal half-FOV = atan(cx / fx).  Reject results outside [10°, 160°].
+  const double kMinFovDeg = 10.0;
+  const double kMaxFovDeg = 160.0;
+  const double kDegPerRad = 180.0 / M_PI;
+  bool pass_fov = true;
+
+  auto check_fov = [&](const std::vector<double>& intr, const char* name) -> bool {
+    const double fx = intr[0];
+    const double cx = intr[2];
+    if (fx <= 0.0 || cx <= 0.0) {
+      std::cerr << name << " has non-positive fx or cx after BA." << std::endl;
+      return false;
+    }
+    const double fov_deg = 2.0 * std::atan(cx / fx) * kDegPerRad;
+    if (fov_deg < kMinFovDeg || fov_deg > kMaxFovDeg) {
+      std::cerr << name << " estimated FOV " << fov_deg << " deg is outside ["
+                << kMinFovDeg << ", " << kMaxFovDeg << "] deg." << std::endl;
+      return false;
+    }
+    return true;
+  };
+
+  pass_fov = check_fov(intrinsics_left_,  "Left camera") &&
+             check_fov(intrinsics_right_, "Right camera");
+
   ApplyResult(result);
-  return converged && pass_reproj;
+  return converged && pass_reproj && pass_fov;
 }
 
 }  // namespace stereocalib

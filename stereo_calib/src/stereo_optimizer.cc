@@ -178,6 +178,35 @@ bool StereoOptimizer::CheckResults() const
     cerr << "Final reprojection error " << final_reproj_error_ << " px exceeds threshold " << max_reproj_error_ << " px." << endl;
     return false;
   }
+
+  // ── FOV sanity check ──────────────────────────────────────────────────────
+  // Use the principal point (cx) as a proxy for the half image width.
+  // Horizontal half-FOV = atan(cx / fx).  Reject results outside [10°, 160°].
+  const double kMinFovDeg = 10.0;
+  const double kMaxFovDeg = 160.0;
+  const double kDegPerRad = 180.0 / M_PI;
+
+  auto check_fov = [&](const vector<double>& intr, const char* name) -> bool {
+    const double fx = intr[0];
+    const double cx = intr[2];
+    if (fx <= 0.0 || cx <= 0.0) {
+      cerr << name << " has non-positive fx or cx after optimisation." << endl;
+      return false;
+    }
+    const double fov_deg = 2.0 * std::atan(cx / fx) * kDegPerRad;
+    if (fov_deg < kMinFovDeg || fov_deg > kMaxFovDeg) {
+      cerr << name << " estimated FOV " << fov_deg << " deg is outside ["
+           << kMinFovDeg << ", " << kMaxFovDeg << "] deg." << endl;
+      return false;
+    }
+    return true;
+  };
+
+  if (!check_fov(intrinsics_left_,  "Left camera") ||
+      !check_fov(intrinsics_right_, "Right camera")) {
+    return false;
+  }
+
   return true;
 }
 

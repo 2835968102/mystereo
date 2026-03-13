@@ -469,6 +469,10 @@ int main(int argc, char** argv)
       options.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
       options.baseline_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--outlier_threshold" && i + 1 < argc) {
+      options.outlier_rejection_threshold = std::stod(argv[++i]);
+    } else if (arg == "--outlier_rounds" && i + 1 < argc) {
+      options.max_outlier_rejection_rounds = std::stoi(argv[++i]);
     }
   }
 
@@ -479,7 +483,8 @@ int main(int argc, char** argv)
               << "[--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
               << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
               << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
-              << "[--baseline_prior 10.0] [--max_reproj_error 20.0]\n"
+              << "[--baseline_prior 10.0] [--max_reproj_error 20.0] "
+              << "[--outlier_threshold 2.0] [--outlier_rounds 3]\n"
               << "Initial values are always loaded from stereo_calib/example_init_params.txt"
               << std::endl;
     return 1;
