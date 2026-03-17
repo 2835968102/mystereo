@@ -468,32 +468,6 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   PrintCurrentVsGroundTruth("Final Global BA");
   RecordOptimizationStage("Final Global BA", final_reproj_error_);
 
-  // ── Iterative post-BA outlier rejection ───────────────────────────────
-  for (int round = 0; round < options_.max_outlier_rejection_rounds; ++round) {
-    const int n_rejected = RejectOutliers(options_.outlier_rejection_threshold);
-    if (n_rejected == 0) break;
-
-    std::fill(active_frames.begin(), active_frames.end(), 1);
-    double rej_init_rmse = 0.0;
-    double rej_final_rmse = 0.0;
-    if (!RunBundleAdjustment(active_frames, options_.max_iter,
-                             summary_, rej_init_rmse, rej_final_rmse)) {
-      break;
-    }
-    final_reproj_error_ = rej_final_rmse;
-
-    const std::string stage_name = "Outlier Rejection BA - Round " + std::to_string(round + 1);
-    std::cout << "[" << stage_name << "] reproj_rmse=" << std::fixed << std::setprecision(4)
-              << rej_final_rmse << " px" << std::endl;
-    PrintCurrentVsGroundTruth(stage_name);
-    RecordOptimizationStage(stage_name, rej_final_rmse);
-
-    if (!CheckFov(intrinsics_left_,  "Left camera") ||
-        !CheckFov(intrinsics_right_, "Right camera")) {
-      break;
-    }
-  }
-
   const bool converged = (summary_.termination_type == ceres::CONVERGENCE ||
                           summary_.termination_type == ceres::NO_CONVERGENCE);
   const bool pass_reproj = (final_reproj_error_ <= options_.max_reproj_error);

@@ -41,8 +41,8 @@ class OfflineStereoBA {
     double max_match_score = 1.0;
     int min_pair_inliers = 12;
     double min_pair_inlier_ratio = 0.35;
-    bool fix_distortion = false;
-    double aspect_ratio_prior_weight = 1.0;
+    bool fix_distortion = true;
+    double aspect_ratio_prior_weight = 100.0;
     double max_reproj_error = 20.0;
     double baseline_prior_weight = 10.0;
     // Post-BA iterative outlier rejection
