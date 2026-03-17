@@ -583,6 +583,7 @@ def render_panoramic_stereo(
     camera_position=(0, 0, 2),
     azimuth_range=(0, 360),
     elevation_range=(-80, 80),
+    max_angle_step=None,
     random_seed=None,
     file_format='PNG',
     rig_name="Stereo_Camera_Rig",
@@ -602,6 +603,8 @@ def render_panoramic_stereo(
                           0° 为 +X 方向，逆时针增大
         elevation_range:  俯仰角随机采样范围（度），如 (-80, 80)
                           0° 为水平，+90° 为正上，-90° 为正下
+        max_angle_step:   相邻帧之间最大角度变化（度），None 表示不限制。
+                          设置后每帧的方位角和俯仰角变化均不超过此值（随机游走模式）
         random_seed:      随机种子；None 表示每次不同
         file_format:      图像格式 ('PNG', 'JPEG', 'OPEN_EXR')
         rig_name:         Blender 中相机装备的对象名称
@@ -657,16 +660,31 @@ def render_panoramic_stereo(
     all_frames_info = []
 
     print(f"开始随机全景渲染（相机原地旋转）")
-    print(f"  图像对数:   {num_images}")
-    print(f"  相机位置:   {camera_position}")
-    print(f"  方位角范围: [{az_min}°, {az_max}°]")
-    print(f"  俯仰角范围: [{el_min}°, {el_max}°]")
-    print(f"  随机种子:   {random_seed}")
+    print(f"  图像对数:     {num_images}")
+    print(f"  相机位置:     {camera_position}")
+    print(f"  方位角范围:   [{az_min}°, {az_max}°]")
+    print(f"  俯仰角范围:   [{el_min}°, {el_max}°]")
+    print(f"  最大帧间步长: {max_angle_step}°" if max_angle_step is not None else "  最大帧间步长: 无限制")
+    print(f"  随机种子:     {random_seed}")
+
+    prev_az = None
+    prev_el = None
 
     for idx in range(num_images):
-        # 随机采样方位角和俯仰角
-        azimuth_deg   = random.uniform(az_min, az_max)
-        elevation_deg = random.uniform(el_min, el_max)
+        if max_angle_step is None or prev_az is None:
+            # 无限制 或 第一帧：自由随机采样
+            azimuth_deg   = random.uniform(az_min, az_max)
+            elevation_deg = random.uniform(el_min, el_max)
+        else:
+            # 随机游走：在前一帧附近采样，步长不超过 max_angle_step
+            azimuth_deg   = prev_az + random.uniform(-max_angle_step, max_angle_step)
+            elevation_deg = prev_el + random.uniform(-max_angle_step, max_angle_step)
+            # 钳位到有效范围
+            azimuth_deg   = max(az_min, min(az_max, azimuth_deg))
+            elevation_deg = max(el_min, min(el_max, elevation_deg))
+
+        prev_az = azimuth_deg
+        prev_el = elevation_deg
         az_rad = math.radians(azimuth_deg)
         el_rad = math.radians(elevation_deg)
 
@@ -794,6 +812,10 @@ if __name__ == "__main__":
     # 俯仰角随机采样范围（度）：0°=水平，+90°=朝正上，-90°=朝正下
     ELEVATION_RANGE = (-90, 90)
 
+    # 相邻帧之间最大角度变化（度）：设为 None 则不限制（完全随机）
+    # 例如设为 30 表示每帧的方位角和俯仰角变化均不超过 30°
+    MAX_ANGLE_STEP = 30
+
     # 随机种子（设为 None 则每次不同）
     RANDOM_SEED = 42
 
@@ -824,6 +846,7 @@ if __name__ == "__main__":
         camera_position=CAMERA_POSITION,
         azimuth_range=AZIMUTH_RANGE,
         elevation_range=ELEVATION_RANGE,
+        max_angle_step=MAX_ANGLE_STEP,
         random_seed=RANDOM_SEED,
         file_format='PNG',
         export_poses=True,
