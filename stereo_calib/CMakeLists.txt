@@ -38,6 +38,9 @@ include_directories(src)
 
 set(STEREO_CORE_SRCS
     src/stereo_factors.cc
+    src/stereo_io.cc
+    src/stereo_eval.cc
+    src/track_builder.cc
     src/stereo_optimizer.cc
     src/offline_stereo_ba.cc
 )

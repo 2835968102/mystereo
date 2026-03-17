@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "stereo_types.h"
+#include "track_builder.h"
 
 namespace stereocalib {
 
@@ -54,7 +55,6 @@ class OfflineStereoBA {
 
   bool Solve(StereoCamera& result);
 
-  // 设置真值（用于每次优化后的对比输出）
   void SetGroundTruth(const StereoCamera& gt);
 
   size_t num_tracks() const { return num_tracks_; }
@@ -64,57 +64,9 @@ class OfflineStereoBA {
   double init_reproj_error() const { return init_reproj_error_; }
   double final_reproj_error() const { return final_reproj_error_; }
 
-  // 获取所有优化阶段的历史记录（JSON格式）
   std::vector<nlohmann::json> GetOptimizationHistory() const { return optimization_history_; }
 
  private:
-  struct TrackObservation {
-    int frame_idx = -1;
-    bool is_left = true;
-    cv::Point2f px;
-    bool rejected = false;
-  };
-
-  struct Track {
-    std::vector<TrackObservation> observations;
-    std::vector<double> point3d;  // world coordinates
-  };
-
-  struct FrameState {
-    std::string frame_id;
-    int left_image_idx = -1;
-    int right_image_idx = -1;
-    std::vector<double> rvec = {0.0, 0.0, 0.0};
-    bool initialized = false;
-  };
-
-  struct ImageInfo {
-    std::string name;
-    bool valid = false;
-    bool is_left = true;
-    std::string frame_id;
-    int frame_idx = -1;
-  };
-
-  class UnionFind {
-   public:
-    int AddNode();
-    int Find(int x);
-    void Unite(int a, int b);
-
-   private:
-    std::vector<int> parent_;
-    std::vector<int> rank_;
-  };
-
-  bool BuildTracks();
-  bool ParseImageName(const std::string& image_name, bool& is_left, std::string& frame_id) const;
-  bool InitializeFrameRotations(std::vector<int>& registration_order);
-  bool InitializeTrackPoints();
-  size_t CollectLeftLeftCorrespondences(int frame_a, int frame_b,
-                                        std::vector<cv::Point2f>& pts_a,
-                                        std::vector<cv::Point2f>& pts_b) const;
-
   bool RunBundleAdjustment(const std::vector<char>& active_frames,
                            int max_num_iterations,
                            ceres::Solver::Summary& summary,
@@ -124,10 +76,14 @@ class OfflineStereoBA {
   int  RejectOutliers(double threshold);
   void ApplyResult(StereoCamera& result);
 
+  void PrintCurrentVsGroundTruth(const std::string& stage_name) const;
+  void RecordOptimizationStage(const std::string& stage_name, double reproj_error);
+
  private:
   OfflineBAInput input_;
   Options options_;
 
+  // Track-builder results (owned here after building)
   std::vector<ImageInfo> images_;
   std::vector<FrameState> frames_;
   std::vector<std::string> frame_ids_;
@@ -147,15 +103,10 @@ class OfflineStereoBA {
   double init_reproj_error_ = 0.0;
   double final_reproj_error_ = 0.0;
 
-  // Ground truth for comparison (optional)
   bool has_ground_truth_ = false;
   StereoCamera ground_truth_;
 
-  // Optimization history for each stage
   std::vector<nlohmann::json> optimization_history_;
-
-  void PrintCurrentVsGroundTruth(const std::string& stage_name) const;
-  void RecordOptimizationStage(const std::string& stage_name, double reproj_error);
 };
 
 }  // namespace stereocalib

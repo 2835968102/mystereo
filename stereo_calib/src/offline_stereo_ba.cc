@@ -7,121 +7,16 @@
 #include <cmath>
 #include <iomanip>
 #include <iostream>
-#include <limits>
-#include <map>
-#include <set>
-#include <sstream>
-#include <unordered_map>
 
 #include <opencv2/calib3d.hpp>
 
+#include "stereo_eval.h"
 #include "stereo_factors.h"
+#include "stereo_io.h"
+#include "track_builder.h"
 
 namespace stereocalib {
 namespace {
-
-struct BaselinePriorFactor {
-  explicit BaselinePriorFactor(const std::vector<double>& init_extrinsics, double weight)
-      : init_t_(3, 0.0), weight_(weight)
-  {
-    init_t_[0] = init_extrinsics[3];
-    init_t_[1] = init_extrinsics[4];
-    init_t_[2] = init_extrinsics[5];
-  }
-
-  bool operator()(const double* extrinsics, double* residual) const
-  {
-    residual[0] = weight_ * (extrinsics[3] - init_t_[0]);
-    residual[1] = weight_ * (extrinsics[4] - init_t_[1]);
-    residual[2] = weight_ * (extrinsics[5] - init_t_[2]);
-    return true;
-  }
-
-  static ceres::CostFunction* Create(const std::vector<double>& init_extrinsics, double weight)
-  {
-    return new ceres::NumericDiffCostFunction<BaselinePriorFactor, ceres::CENTRAL, 3, 6>(
-        new BaselinePriorFactor(init_extrinsics, weight));
-  }
-
-  std::vector<double> init_t_;
-  double weight_ = 0.0;
-};
-
-struct AspectRatioPriorFactor {
-  explicit AspectRatioPriorFactor(double weight) : weight_(weight) {}
-
-  bool operator()(const double* intrinsics, double* residual) const
-  {
-    residual[0] = weight_ * (intrinsics[0] - intrinsics[1]);  // fx - fy
-    return true;
-  }
-
-  static ceres::CostFunction* Create(double weight)
-  {
-    return new ceres::NumericDiffCostFunction<AspectRatioPriorFactor, ceres::CENTRAL, 1, 9>(
-        new AspectRatioPriorFactor(weight));
-  }
-
-  double weight_ = 0.0;
-};
-
-struct TrackReprojFactor {
-  TrackReprojFactor(const cv::Point2f& obs, bool is_left) : obs_(obs), is_left_(is_left) {}
-
-  bool operator()(const double* intr_left,
-                  const double* intr_right,
-                  const double* extrinsics,
-                  const double* frame_rvec,
-                  const double* point3d,
-                  double* residual) const
-  {
-    const cv::Mat rvec_lw = (cv::Mat_<double>(3, 1) << frame_rvec[0], frame_rvec[1], frame_rvec[2]);
-    cv::Mat R_lw;
-    cv::Rodrigues(rvec_lw, R_lw);
-
-    const cv::Mat X_w = (cv::Mat_<double>(3, 1) << point3d[0], point3d[1], point3d[2]);
-    const cv::Mat X_l = R_lw * X_w;
-
-    cv::Mat X_cam = X_l;
-    const double* intr = intr_left;
-
-    if (!is_left_) {
-      const cv::Mat rvec_rl = (cv::Mat_<double>(3, 1) << extrinsics[0], extrinsics[1], extrinsics[2]);
-      cv::Mat R_rl;
-      cv::Rodrigues(rvec_rl, R_rl);
-      const cv::Mat t_rl = (cv::Mat_<double>(3, 1) << extrinsics[3], extrinsics[4], extrinsics[5]);
-      X_cam = R_rl * X_l + t_rl;
-      intr = intr_right;
-    }
-
-    const double Z = X_cam.at<double>(2, 0);
-    if (Z <= 0.0) {
-      residual[0] = 1e6;
-      residual[1] = 1e6;
-      return true;
-    }
-
-    const double xn = X_cam.at<double>(0, 0) / Z;
-    const double yn = X_cam.at<double>(1, 0) / Z;
-
-    double u = 0.0;
-    double v = 0.0;
-    ApplyDistAndProject(intr, xn, yn, u, v);
-
-    residual[0] = static_cast<double>(obs_.x) - u;
-    residual[1] = static_cast<double>(obs_.y) - v;
-    return true;
-  }
-
-  static ceres::CostFunction* Create(const cv::Point2f& obs, bool is_left)
-  {
-    return new ceres::NumericDiffCostFunction<TrackReprojFactor, ceres::CENTRAL, 2, 9, 9, 6, 3, 3>(
-        new TrackReprojFactor(obs, is_left));
-  }
-
-  cv::Point2f obs_;
-  bool is_left_ = true;
-};
 
 cv::Mat ToRotation(const std::vector<double>& rvec)
 {
@@ -131,93 +26,9 @@ cv::Mat ToRotation(const std::vector<double>& rvec)
   return R;
 }
 
-bool EstimatePureRotation(const std::vector<cv::Point2f>& pts_from,
-                          const std::vector<cv::Point2f>& pts_to,
-                          const cv::Mat& K,
-                          const cv::Mat& dist,
-                          cv::Mat& R_rel)
-{
-  if (pts_from.size() < 8 || pts_to.size() < 8) {
-    return false;
-  }
-
-  std::vector<cv::Point2f> und_from;
-  std::vector<cv::Point2f> und_to;
-  cv::undistortPoints(pts_from, und_from, K, dist);
-  cv::undistortPoints(pts_to, und_to, K, dist);
-
-  cv::Mat inliers;
-  const cv::Mat H = cv::findHomography(und_from, und_to, cv::RANSAC, 2.5, inliers, 2000, 0.995);
-  if (H.empty()) {
-    return false;
-  }
-
-  cv::SVD svd(H);
-  cv::Mat R = svd.u * svd.vt;
-  if (cv::determinant(R) < 0.0) {
-    R = -R;
-  }
-
-  if (!cv::checkRange(R)) {
-    return false;
-  }
-
-  R_rel = R;
-  return true;
-}
-
-std::string Basename(const std::string& path)
-{
-  const size_t slash_pos = path.find_last_of("/\\");
-  if (slash_pos == std::string::npos) {
-    return path;
-  }
-  return path.substr(slash_pos + 1);
-}
-
-std::string PointKey(int image_idx, const cv::Point2f& pt)
-{
-  const int x100 = static_cast<int>(std::round(pt.x * 100.0f));
-  const int y100 = static_cast<int>(std::round(pt.y * 100.0f));
-
-  std::ostringstream oss;
-  oss << image_idx << "_" << x100 << "_" << y100;
-  return oss.str();
-}
-
 }  // namespace
 
-int OfflineStereoBA::UnionFind::AddNode()
-{
-  const int idx = static_cast<int>(parent_.size());
-  parent_.push_back(idx);
-  rank_.push_back(0);
-  return idx;
-}
-
-int OfflineStereoBA::UnionFind::Find(int x)
-{
-  if (parent_[x] != x) {
-    parent_[x] = Find(parent_[x]);
-  }
-  return parent_[x];
-}
-
-void OfflineStereoBA::UnionFind::Unite(int a, int b)
-{
-  int pa = Find(a);
-  int pb = Find(b);
-  if (pa == pb) {
-    return;
-  }
-  if (rank_[pa] < rank_[pb]) {
-    std::swap(pa, pb);
-  }
-  parent_[pb] = pa;
-  if (rank_[pa] == rank_[pb]) {
-    rank_[pa]++;
-  }
-}
+// ─── Constructor ────────────────────────────────────────────────────────────
 
 OfflineStereoBA::OfflineStereoBA(const OfflineBAInput& input, const Options& options)
     : input_(input), options_(options)
@@ -228,581 +39,15 @@ OfflineStereoBA::OfflineStereoBA(const OfflineBAInput& input, const Options& opt
   init_extrinsics_ = extrinsics_;
 }
 
-bool OfflineStereoBA::ParseImageName(const std::string& image_name, bool& is_left, std::string& frame_id) const
+// ─── Ground truth ───────────────────────────────────────────────────────────
+
+void OfflineStereoBA::SetGroundTruth(const StereoCamera& gt)
 {
-  const std::string base = Basename(image_name);
-  const size_t dot = base.find_last_of('.');
-  const std::string stem = dot == std::string::npos ? base : base.substr(0, dot);
-
-  const std::string left_prefix = "left_";
-  const std::string right_prefix = "right_";
-
-  if (stem.compare(0, left_prefix.size(), left_prefix) == 0) {
-    is_left = true;
-    frame_id = stem.substr(left_prefix.size());
-    return !frame_id.empty();
-  }
-
-  if (stem.compare(0, right_prefix.size(), right_prefix) == 0) {
-    is_left = false;
-    frame_id = stem.substr(right_prefix.size());
-    return !frame_id.empty();
-  }
-
-  return false;
+  has_ground_truth_ = true;
+  ground_truth_ = gt;
 }
 
-bool OfflineStereoBA::BuildTracks()
-{
-  // RANSAC parameters used for fundamental-matrix filtering of match pairs.
-  const double kFmRansacThreshold  = 2.0;    // reprojection threshold (pixels)
-  const double kFmRansacConfidence = 0.995;
-  const int    kMinMatchesForRansac = 8;      // minimum points for 8-point algorithm
-
-  std::unordered_map<std::string, int> image_index;
-  images_.clear();
-
-  auto ensure_image = [&](const std::string& name) {
-    std::unordered_map<std::string, int>::const_iterator it = image_index.find(name);
-    if (it != image_index.end()) {
-      return it->second;
-    }
-    const int idx = static_cast<int>(images_.size());
-    image_index[name] = idx;
-
-    ImageInfo info;
-    info.name = name;
-    bool is_left = true;
-    std::string frame_id;
-    info.valid = ParseImageName(name, is_left, frame_id);
-    info.is_left = is_left;
-    info.frame_id = frame_id;
-    images_.push_back(info);
-    return idx;
-  };
-
-  struct NodeInfo {
-    int image_idx = -1;
-    cv::Point2f px;
-  };
-
-  std::vector<NodeInfo> nodes;
-  nodes.reserve(200000);
-
-  UnionFind uf;
-  std::unordered_map<std::string, int> node_index;
-
-  auto ensure_node = [&](int image_idx, const cv::Point2f& pt) {
-    const std::string key = PointKey(image_idx, pt);
-    std::unordered_map<std::string, int>::const_iterator it = node_index.find(key);
-    if (it != node_index.end()) {
-      return it->second;
-    }
-    const int node_id = uf.AddNode();
-    node_index[key] = node_id;
-    NodeInfo n;
-    n.image_idx = image_idx;
-    n.px = pt;
-    nodes.push_back(n);
-    return node_id;
-  };
-
-  // ── Phase 1: Build union-find edges ───────────────────────────────────────
-  // For each image pair, score-filter matches, apply RANSAC geometry check,
-  // then unite the surviving feature nodes in the union-find structure.
-  for (size_t i = 0; i < input_.pairs.size(); ++i) {
-    const RawImagePair& pair = input_.pairs[i];
-    if (pair.image_a == pair.image_b) {
-      continue;
-    }
-
-    const int ia = ensure_image(pair.image_a);
-    const int ib = ensure_image(pair.image_b);
-
-    std::vector<char> inlier_mask(pair.matches.size(), 1);
-    bool a_left = true;
-    bool b_left = true;
-    std::string a_frame_id;
-    std::string b_frame_id;
-    const bool a_ok = ParseImageName(pair.image_a, a_left, a_frame_id);
-    const bool b_ok = ParseImageName(pair.image_b, b_left, b_frame_id);
-
-    std::vector<cv::Point2f> pts_a;
-    std::vector<cv::Point2f> pts_b;
-    std::vector<int> idx_map;
-    pts_a.reserve(pair.matches.size());
-    pts_b.reserve(pair.matches.size());
-    idx_map.reserve(pair.matches.size());
-
-    for (size_t k = 0; k < pair.matches.size(); ++k) {
-      const RawPairMatch& m = pair.matches[k];
-      if (m.score > options_.max_match_score) {
-        continue;
-      }
-      pts_a.push_back(m.pt_a);
-      pts_b.push_back(m.pt_b);
-      idx_map.push_back(static_cast<int>(k));
-    }
-
-    bool pair_accepted = (pts_a.size() >= static_cast<size_t>(kMinMatchesForRansac));
-    if (pts_a.size() >= static_cast<size_t>(kMinMatchesForRansac)) {
-      cv::Mat inliers;
-      bool geometry_ok = false;
-
-      {
-        const cv::Mat F = cv::findFundamentalMat(pts_a, pts_b, cv::FM_RANSAC,
-                                                 kFmRansacThreshold, kFmRansacConfidence, inliers);
-        geometry_ok = !F.empty();
-      }
-
-      const bool mask_row = (inliers.rows == static_cast<int>(pts_a.size()) && inliers.cols == 1);
-      const bool mask_col = (inliers.cols == static_cast<int>(pts_a.size()) && inliers.rows == 1);
-      if (geometry_ok && (mask_row || mask_col)) {
-        std::fill(inlier_mask.begin(), inlier_mask.end(), 0);
-        int inlier_count = 0;
-        for (int k = 0; k < static_cast<int>(pts_a.size()); ++k) {
-          const uchar ok = mask_row ? inliers.at<uchar>(k, 0) : inliers.at<uchar>(0, k);
-          if (ok != 0) {
-            inlier_mask[idx_map[k]] = 1;
-            ++inlier_count;
-          }
-        }
-
-        const double inlier_ratio = static_cast<double>(inlier_count) / static_cast<double>(pts_a.size());
-        if (inlier_count < options_.min_pair_inliers || inlier_ratio < options_.min_pair_inlier_ratio) {
-          pair_accepted = false;
-        }
-      } else {
-        pair_accepted = false;
-      }
-    }
-
-    if (!pair_accepted) {
-      continue;
-    }
-
-    for (size_t k = 0; k < pair.matches.size(); ++k) {
-      const RawPairMatch& m = pair.matches[k];
-      if (m.score > options_.max_match_score) {
-        continue;
-      }
-      if (!inlier_mask[k]) {
-        continue;
-      }
-      const int na = ensure_node(ia, m.pt_a);
-      const int nb = ensure_node(ib, m.pt_b);
-      uf.Unite(na, nb);
-    }
-  }
-
-  if (nodes.empty()) {
-    std::cerr << "No valid match nodes were built." << std::endl;
-    return false;
-  }
-
-  // Build frame list from parsed image names.
-  std::map<std::string, int> frame_map;
-  for (size_t i = 0; i < images_.size(); ++i) {
-    ImageInfo& img = images_[i];
-    if (!img.valid) {
-      continue;
-    }
-
-    std::map<std::string, int>::const_iterator it = frame_map.find(img.frame_id);
-    if (it == frame_map.end()) {
-      const int fidx = static_cast<int>(frames_.size());
-      frame_map[img.frame_id] = fidx;
-      FrameState frame;
-      frame.frame_id = img.frame_id;
-      frames_.push_back(frame);
-      frame_ids_.push_back(img.frame_id);
-      img.frame_idx = fidx;
-    } else {
-      img.frame_idx = it->second;
-    }
-
-    FrameState& f = frames_[img.frame_idx];
-    if (img.is_left) {
-      f.left_image_idx = static_cast<int>(i);
-    } else {
-      f.right_image_idx = static_cast<int>(i);
-    }
-  }
-
-  std::vector<FrameState> valid_frames;
-  std::vector<std::string> valid_frame_ids;
-  std::vector<int> old_to_new_frame(frames_.size(), -1);
-
-  for (size_t i = 0; i < frames_.size(); ++i) {
-    const FrameState& f = frames_[i];
-    if (f.left_image_idx < 0 || f.right_image_idx < 0) {
-      continue;
-    }
-    old_to_new_frame[i] = static_cast<int>(valid_frames.size());
-    valid_frames.push_back(f);
-    valid_frame_ids.push_back(f.frame_id);
-  }
-
-  frames_.swap(valid_frames);
-  frame_ids_.swap(valid_frame_ids);
-
-  for (size_t i = 0; i < images_.size(); ++i) {
-    ImageInfo& img = images_[i];
-    if (img.frame_idx >= 0) {
-      img.frame_idx = old_to_new_frame[img.frame_idx];
-    }
-  }
-
-  if (frames_.empty()) {
-    std::cerr << "No valid stereo frame (left_xxx + right_xxx) found." << std::endl;
-    return false;
-  }
-
-  std::unordered_map<int, std::vector<int> > comps;
-  comps.reserve(nodes.size());
-
-  // ── Phase 2: Resolve components and build tracks ───────────────────────────
-  // Query the union-find root for every node to group them into connected
-  // components, then discard components that are too short or lack stereo
-  // observations in at least one frame.
-  for (size_t i = 0; i < nodes.size(); ++i) {
-    const int root = uf.Find(static_cast<int>(i));
-    comps[root].push_back(static_cast<int>(i));
-  }
-
-  tracks_.clear();
-  num_observations_ = 0;
-
-  for (std::unordered_map<int, std::vector<int> >::const_iterator it = comps.begin(); it != comps.end(); ++it) {
-    const std::vector<int>& comp = it->second;
-    Track track;
-    std::set<std::pair<int, bool> > seen;
-
-    for (size_t j = 0; j < comp.size(); ++j) {
-      const NodeInfo& node = nodes[comp[j]];
-      const ImageInfo& img = images_[node.image_idx];
-      if (!img.valid || img.frame_idx < 0) {
-        continue;
-      }
-
-      const std::pair<int, bool> key(img.frame_idx, img.is_left);
-      if (seen.find(key) != seen.end()) {
-        continue;
-      }
-      seen.insert(key);
-
-      TrackObservation obs;
-      obs.frame_idx = img.frame_idx;
-      obs.is_left = img.is_left;
-      obs.px = node.px;
-      track.observations.push_back(obs);
-    }
-
-    if (track.observations.size() < static_cast<size_t>(options_.min_track_len)) {
-      continue;
-    }
-
-    bool has_left = false;
-    bool has_right = false;
-    for (size_t j = 0; j < track.observations.size(); ++j) {
-      has_left = has_left || track.observations[j].is_left;
-      has_right = has_right || !track.observations[j].is_left;
-    }
-    if (!has_left || !has_right) {
-      continue;
-    }
-
-    track.point3d.assign(3, 0.0);
-    tracks_.push_back(track);
-    num_observations_ += track.observations.size();
-  }
-
-  num_tracks_ = tracks_.size();
-
-  if (tracks_.empty()) {
-    std::cerr << "No valid tracks after union-find filtering." << std::endl;
-    return false;
-  }
-
-  return true;
-}
-
-size_t OfflineStereoBA::CollectLeftLeftCorrespondences(int frame_a, int frame_b,
-                                                       std::vector<cv::Point2f>& pts_a,
-                                                       std::vector<cv::Point2f>& pts_b) const
-{
-  pts_a.clear();
-  pts_b.clear();
-
-  for (size_t t = 0; t < tracks_.size(); ++t) {
-    const Track& track = tracks_[t];
-    const TrackObservation* obs_a = NULL;
-    const TrackObservation* obs_b = NULL;
-
-    for (size_t k = 0; k < track.observations.size(); ++k) {
-      const TrackObservation& obs = track.observations[k];
-      if (!obs.is_left) {
-        continue;
-      }
-      if (obs.frame_idx == frame_a) {
-        obs_a = &obs;
-      } else if (obs.frame_idx == frame_b) {
-        obs_b = &obs;
-      }
-      if (obs_a != NULL && obs_b != NULL) {
-        break;
-      }
-    }
-
-    if (obs_a != NULL && obs_b != NULL) {
-      pts_a.push_back(obs_a->px);
-      pts_b.push_back(obs_b->px);
-    }
-  }
-
-  return pts_a.size();
-}
-
-bool OfflineStereoBA::InitializeFrameRotations(std::vector<int>& registration_order)
-{
-  if (frames_.empty()) {
-    return false;
-  }
-  registration_order.clear();
-
-  const cv::Mat K = input_.init_camera.left.K();
-  const cv::Mat dist = input_.init_camera.left.dist();
-
-  // Pick the start frame with highest number of left observations.
-  int start_frame = 0;
-  size_t best_count = 0;
-  for (size_t fi = 0; fi < frames_.size(); ++fi) {
-    size_t cnt = 0;
-    for (size_t ti = 0; ti < tracks_.size(); ++ti) {
-      const Track& track = tracks_[ti];
-      for (size_t oi = 0; oi < track.observations.size(); ++oi) {
-        const TrackObservation& obs = track.observations[oi];
-        if (obs.frame_idx == static_cast<int>(fi) && obs.is_left) {
-          cnt++;
-          break;
-        }
-      }
-    }
-    if (cnt > best_count) {
-      best_count = cnt;
-      start_frame = static_cast<int>(fi);
-    }
-  }
-
-  frames_[start_frame].initialized = true;
-  frames_[start_frame].rvec.assign(3, 0.0);
-  fixed_frame_idx_ = start_frame;
-  registration_order.push_back(start_frame);
-
-  size_t registered = 1;
-  std::vector<cv::Point2f> pts_from;
-  std::vector<cv::Point2f> pts_to;
-
-  while (registered < frames_.size()) {
-    int best_from = -1;
-    int best_to = -1;
-    size_t max_overlap = 0;
-
-    for (size_t i = 0; i < frames_.size(); ++i) {
-      if (!frames_[i].initialized) {
-        continue;
-      }
-      for (size_t j = 0; j < frames_.size(); ++j) {
-        if (frames_[j].initialized) {
-          continue;
-        }
-
-        const size_t overlap = CollectLeftLeftCorrespondences(static_cast<int>(i), static_cast<int>(j), pts_from, pts_to);
-        if (overlap > max_overlap) {
-          max_overlap = overlap;
-          best_from = static_cast<int>(i);
-          best_to = static_cast<int>(j);
-        }
-      }
-    }
-
-    if (best_to < 0 || max_overlap < 8) {
-      // Fall back to identity for the remaining frames.
-      for (size_t i = 0; i < frames_.size(); ++i) {
-        if (!frames_[i].initialized) {
-          frames_[i].initialized = true;
-          frames_[i].rvec.assign(3, 0.0);
-          registration_order.push_back(static_cast<int>(i));
-          registered++;
-        }
-      }
-      break;
-    }
-
-    CollectLeftLeftCorrespondences(best_from, best_to, pts_from, pts_to);
-
-    // ── Pixel-disparity filter ─────────────────────────────────────────────
-    // Reject correspondences whose inter-frame pixel displacement exceeds the
-    // threshold; very large motion likely indicates mis-matched tracks that
-    // would corrupt the pure-rotation estimate.
-    {
-      const double kMaxPixelDisp = 300.0;  // pixels
-      std::vector<cv::Point2f> filt_from, filt_to;
-      filt_from.reserve(pts_from.size());
-      filt_to.reserve(pts_to.size());
-      for (size_t i = 0; i < pts_from.size(); ++i) {
-        const double dx = pts_to[i].x - pts_from[i].x;
-        const double dy = pts_to[i].y - pts_from[i].y;
-        if (dx * dx + dy * dy <= kMaxPixelDisp * kMaxPixelDisp) {
-          filt_from.push_back(pts_from[i]);
-          filt_to.push_back(pts_to[i]);
-        }
-      }
-      pts_from.swap(filt_from);
-      pts_to.swap(filt_to);
-    }
-
-    if (pts_from.size() < 8) {
-      frames_[best_to].initialized = true;
-      frames_[best_to].rvec = frames_[best_from].rvec;
-      registration_order.push_back(best_to);
-      registered++;
-      continue;
-    }
-
-    cv::Mat R_rel;
-    if (!EstimatePureRotation(pts_from, pts_to, K, dist, R_rel)) {
-      frames_[best_to].initialized = true;
-      frames_[best_to].rvec = frames_[best_from].rvec;
-      registration_order.push_back(best_to);
-      registered++;
-      continue;
-    }
-
-    const cv::Mat R_from = ToRotation(frames_[best_from].rvec);
-    const cv::Mat R_to = R_rel * R_from;
-
-    cv::Mat rvec_to;
-    cv::Rodrigues(R_to, rvec_to);
-    frames_[best_to].rvec = {
-        rvec_to.at<double>(0, 0),
-        rvec_to.at<double>(1, 0),
-        rvec_to.at<double>(2, 0),
-    };
-    frames_[best_to].initialized = true;
-    registration_order.push_back(best_to);
-    registered++;
-  }
-
-  return true;
-}
-
-bool OfflineStereoBA::InitializeTrackPoints()
-{
-  const cv::Mat K_l = input_.init_camera.left.K();
-  const cv::Mat dist_l = input_.init_camera.left.dist();
-  const cv::Mat K_r = input_.init_camera.right.K();
-  const cv::Mat dist_r = input_.init_camera.right.dist();
-
-  StereoExtrinsics ext = input_.init_camera.extrinsics;
-  if (ext.R.empty() || ext.t.empty()) {
-    ext.FromVector(extrinsics_);
-  }
-
-  cv::Mat P_l = cv::Mat::eye(3, 4, CV_64F);
-  cv::Mat P_r(3, 4, CV_64F);
-  ext.R.copyTo(P_r(cv::Range(0, 3), cv::Range(0, 3)));
-  ext.t.copyTo(P_r(cv::Range(0, 3), cv::Range(3, 4)));
-
-  for (size_t ti = 0; ti < tracks_.size(); ++ti) {
-    Track& track = tracks_[ti];
-    bool initialized = false;
-
-    // Preferred init: triangulate from a same-frame stereo observation.
-    for (size_t oi = 0; oi < track.observations.size() && !initialized; ++oi) {
-      const TrackObservation& obs_l = track.observations[oi];
-      if (!obs_l.is_left) {
-        continue;
-      }
-
-      for (size_t oj = 0; oj < track.observations.size(); ++oj) {
-        const TrackObservation& obs_r = track.observations[oj];
-        if (obs_r.is_left || obs_r.frame_idx != obs_l.frame_idx) {
-          continue;
-        }
-
-        std::vector<cv::Point2f> p_l(1, obs_l.px);
-        std::vector<cv::Point2f> p_r(1, obs_r.px);
-        std::vector<cv::Point2f> p_l_n;
-        std::vector<cv::Point2f> p_r_n;
-        cv::undistortPoints(p_l, p_l_n, K_l, dist_l);
-        cv::undistortPoints(p_r, p_r_n, K_r, dist_r);
-
-        cv::Mat X4;
-        cv::triangulatePoints(P_l, P_r, p_l_n, p_r_n, X4);
-
-        const double w = X4.at<float>(3, 0);
-        if (std::abs(w) < 1e-9) {
-          continue;
-        }
-
-        const cv::Mat Xl = (cv::Mat_<double>(3, 1)
-            << X4.at<float>(0, 0) / w,
-               X4.at<float>(1, 0) / w,
-               X4.at<float>(2, 0) / w);
-
-        if (Xl.at<double>(2, 0) <= 0.0) {
-          continue;
-        }
-
-        const cv::Mat R_lw = ToRotation(frames_[obs_l.frame_idx].rvec);
-        const cv::Mat Xw = R_lw.t() * Xl;
-
-        track.point3d[0] = Xw.at<double>(0, 0);
-        track.point3d[1] = Xw.at<double>(1, 0);
-        track.point3d[2] = Xw.at<double>(2, 0);
-        initialized = true;
-        break;
-      }
-    }
-
-    if (initialized) {
-      continue;
-    }
-
-    // Fallback init from any left observation with fixed depth.
-    for (size_t oi = 0; oi < track.observations.size() && !initialized; ++oi) {
-      const TrackObservation& obs = track.observations[oi];
-      if (!obs.is_left) {
-        continue;
-      }
-
-      std::vector<cv::Point2f> p(1, obs.px);
-      std::vector<cv::Point2f> p_n;
-      cv::undistortPoints(p, p_n, K_l, dist_l);
-
-      const cv::Mat ray_l = (cv::Mat_<double>(3, 1)
-          << p_n[0].x,
-             p_n[0].y,
-             1.0);
-
-      const cv::Mat R_lw = ToRotation(frames_[obs.frame_idx].rvec);
-      const cv::Mat Xw = R_lw.t() * (5.0 * ray_l);
-      track.point3d[0] = Xw.at<double>(0, 0);
-      track.point3d[1] = Xw.at<double>(1, 0);
-      track.point3d[2] = Xw.at<double>(2, 0);
-      initialized = true;
-    }
-
-    if (!initialized) {
-      track.point3d[0] = 0.0;
-      track.point3d[1] = 0.0;
-      track.point3d[2] = 5.0;
-    }
-  }
-
-  return true;
-}
+// ─── RunBundleAdjustment ────────────────────────────────────────────────────
 
 bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames,
                                           int max_num_iterations,
@@ -909,7 +154,6 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
     set_intrinsics_bounds(intrinsics_right_.data(), input_.init_camera.right);
   }
 
-  // 固定帧的位姿（根据优化模式决定哪些帧需要固定）
   for (size_t fi = 0; fi < frames_.size(); ++fi) {
     if (!problem.HasParameterBlock(frames_[fi].rvec.data())) {
       continue;
@@ -917,14 +161,9 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
 
     bool should_fix = false;
 
-    // 模式1：增量BA模式 - 只优化指定的新注册帧
     if (frame_to_optimize >= 0) {
-      // 固定除了新注册帧之外的所有帧
       should_fix = (static_cast<int>(fi) != frame_to_optimize);
-    }
-    // 模式2：全局BA模式 - 优化所有已注册帧（除参考帧外）
-    else {
-      // 固定参考帧和未激活的帧
+    } else {
       should_fix = (static_cast<int>(fi) == fixed_frame_idx_ ||
                     fi >= active_frames.size() ||
                     !active_frames[fi]);
@@ -954,18 +193,13 @@ bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames
   return true;
 }
 
-// ─── Post-BA outlier rejection ────────────────────────────────────────────────
-//
-// Compute per-observation reprojection error with the current camera parameters
-// and mark those that exceed `threshold` pixels as rejected.  Returns the
-// number of newly rejected observations.
+// ─── RejectOutliers ─────────────────────────────────────────────────────────
 
 int OfflineStereoBA::RejectOutliers(double threshold)
 {
   const double thresh2 = threshold * threshold;
   int rejected_count = 0;
 
-  // Pre-compute right-camera transform once.
   const cv::Mat rvec_rl = (cv::Mat_<double>(3, 1) << extrinsics_[0], extrinsics_[1], extrinsics_[2]);
   cv::Mat R_rl;
   cv::Rodrigues(rvec_rl, R_rl);
@@ -979,7 +213,6 @@ int OfflineStereoBA::RejectOutliers(double threshold)
       if (obs.rejected) continue;
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) continue;
 
-      // World → left camera frame.
       const cv::Mat X_l = ToRotation(frames_[obs.frame_idx].rvec) * X_w;
 
       cv::Mat X_cam = X_l;
@@ -1013,6 +246,8 @@ int OfflineStereoBA::RejectOutliers(double threshold)
   return rejected_count;
 }
 
+// ─── ApplyResult ────────────────────────────────────────────────────────────
+
 void OfflineStereoBA::ApplyResult(StereoCamera& result)
 {
   result.left.FromVector(intrinsics_left_);
@@ -1020,11 +255,7 @@ void OfflineStereoBA::ApplyResult(StereoCamera& result)
   result.extrinsics.FromVector(extrinsics_);
 }
 
-void OfflineStereoBA::SetGroundTruth(const StereoCamera& gt)
-{
-  has_ground_truth_ = true;
-  ground_truth_ = gt;
-}
+// ─── PrintCurrentVsGroundTruth ──────────────────────────────────────────────
 
 void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) const
 {
@@ -1032,7 +263,6 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
     return;
   }
 
-  // 获取当前优化结果
   StereoCamera current;
   current.left.FromVector(intrinsics_left_);
   current.right.FromVector(intrinsics_right_);
@@ -1041,7 +271,6 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
   std::cout << "\n========== " << stage_name << " - Comparison with Ground Truth ==========\n";
   std::cout << std::showpos << std::fixed << std::setprecision(6);
 
-  // 左相机内参对比
   std::cout << "Left camera:\n";
   std::cout << "  fx: " << current.left.fx << " (gt: " << ground_truth_.left.fx
             << ", diff: " << (current.left.fx - ground_truth_.left.fx) << ")\n";
@@ -1052,7 +281,6 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
   std::cout << "  cy: " << current.left.cy << " (gt: " << ground_truth_.left.cy
             << ", diff: " << (current.left.cy - ground_truth_.left.cy) << ")\n";
 
-  // 右相机内参对比
   std::cout << "Right camera:\n";
   std::cout << "  fx: " << current.right.fx << " (gt: " << ground_truth_.right.fx
             << ", diff: " << (current.right.fx - ground_truth_.right.fx) << ")\n";
@@ -1063,7 +291,6 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
   std::cout << "  cy: " << current.right.cy << " (gt: " << ground_truth_.right.cy
             << ", diff: " << (current.right.cy - ground_truth_.right.cy) << ")\n";
 
-  // 外参对比 - 平移向量
   const double tx_diff = current.extrinsics.t.at<double>(0, 0) - ground_truth_.extrinsics.t.at<double>(0, 0);
   const double ty_diff = current.extrinsics.t.at<double>(1, 0) - ground_truth_.extrinsics.t.at<double>(1, 0);
   const double tz_diff = current.extrinsics.t.at<double>(2, 0) - ground_truth_.extrinsics.t.at<double>(2, 0);
@@ -1077,36 +304,25 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
             << ground_truth_.extrinsics.t.at<double>(2, 0) << "]\n";
   std::cout << "  diff: [" << tx_diff << ", " << ty_diff << ", " << tz_diff << "]\n";
 
-  // 基线距离对比
-  const double baseline_current = std::sqrt(
-      current.extrinsics.t.at<double>(0, 0) * current.extrinsics.t.at<double>(0, 0) +
-      current.extrinsics.t.at<double>(1, 0) * current.extrinsics.t.at<double>(1, 0) +
-      current.extrinsics.t.at<double>(2, 0) * current.extrinsics.t.at<double>(2, 0));
-  const double baseline_gt = std::sqrt(
-      ground_truth_.extrinsics.t.at<double>(0, 0) * ground_truth_.extrinsics.t.at<double>(0, 0) +
-      ground_truth_.extrinsics.t.at<double>(1, 0) * ground_truth_.extrinsics.t.at<double>(1, 0) +
-      ground_truth_.extrinsics.t.at<double>(2, 0) * ground_truth_.extrinsics.t.at<double>(2, 0));
+  const double baseline_current = TranslationNorm(current.extrinsics.t);
+  const double baseline_gt = TranslationNorm(ground_truth_.extrinsics.t);
 
   std::cout << "  baseline: " << baseline_current << " (gt: " << baseline_gt
             << ", diff: " << (baseline_current - baseline_gt) << ")\n";
 
-  // 旋转误差
-  cv::Mat R_diff = current.extrinsics.R * ground_truth_.extrinsics.R.t();
-  const double tr = R_diff.at<double>(0, 0) + R_diff.at<double>(1, 1) + R_diff.at<double>(2, 2);
-  double cos_theta = (tr - 1.0) * 0.5;
-  cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
-  const double rot_error_deg = std::acos(cos_theta) * 57.2957795130823208768;
+  const double rot_error_deg = RotationErrorDeg(current.extrinsics.R, ground_truth_.extrinsics.R);
 
   std::cout << "  rotation_error: " << rot_error_deg << " degrees\n";
   std::cout << std::noshowpos;
   std::cout << "================================================================\n\n";
 }
 
+// ─── RecordOptimizationStage ────────────────────────────────────────────────
+
 void OfflineStereoBA::RecordOptimizationStage(const std::string& stage_name, double reproj_error)
 {
   using json = nlohmann::json;
 
-  // 获取当前优化结果
   StereoCamera current;
   current.left.FromVector(intrinsics_left_);
   current.right.FromVector(intrinsics_right_);
@@ -1116,96 +332,50 @@ void OfflineStereoBA::RecordOptimizationStage(const std::string& stage_name, dou
   stage_record["stage"] = stage_name;
   stage_record["reproj_error"] = reproj_error;
 
-  // 当前相机参数
-  stage_record["camera"]["left"]["fx"] = current.left.fx;
-  stage_record["camera"]["left"]["fy"] = current.left.fy;
-  stage_record["camera"]["left"]["cx"] = current.left.cx;
-  stage_record["camera"]["left"]["cy"] = current.left.cy;
-  stage_record["camera"]["left"]["k1"] = current.left.k1;
-  stage_record["camera"]["left"]["k2"] = current.left.k2;
-  stage_record["camera"]["left"]["p1"] = current.left.p1;
-  stage_record["camera"]["left"]["p2"] = current.left.p2;
-  stage_record["camera"]["left"]["k3"] = current.left.k3;
+  stage_record["camera"]["left"] = IntrinsicsToJson(current.left);
+  stage_record["camera"]["right"] = IntrinsicsToJson(current.right);
+  stage_record["camera"]["extrinsics"] = ExtrinsicsToJson(current.extrinsics);
 
-  stage_record["camera"]["right"]["fx"] = current.right.fx;
-  stage_record["camera"]["right"]["fy"] = current.right.fy;
-  stage_record["camera"]["right"]["cx"] = current.right.cx;
-  stage_record["camera"]["right"]["cy"] = current.right.cy;
-  stage_record["camera"]["right"]["k1"] = current.right.k1;
-  stage_record["camera"]["right"]["k2"] = current.right.k2;
-  stage_record["camera"]["right"]["p1"] = current.right.p1;
-  stage_record["camera"]["right"]["p2"] = current.right.p2;
-  stage_record["camera"]["right"]["k3"] = current.right.k3;
-
-  std::vector<double> R_vec(9);
-  std::vector<double> t_vec(3);
-  for (int r = 0; r < 3; ++r) {
-    for (int c = 0; c < 3; ++c) {
-      R_vec[r * 3 + c] = current.extrinsics.R.at<double>(r, c);
-    }
-  }
-  for (int i = 0; i < 3; ++i) {
-    t_vec[i] = current.extrinsics.t.at<double>(i, 0);
-  }
-  stage_record["camera"]["extrinsics"]["R"] = R_vec;
-  stage_record["camera"]["extrinsics"]["t"] = t_vec;
-
-  // 如果有真值，记录对比信息
   if (has_ground_truth_) {
-    // 左相机内参差异
-    stage_record["diff_vs_gt"]["left"]["fx"] = current.left.fx - ground_truth_.left.fx;
-    stage_record["diff_vs_gt"]["left"]["fy"] = current.left.fy - ground_truth_.left.fy;
-    stage_record["diff_vs_gt"]["left"]["cx"] = current.left.cx - ground_truth_.left.cx;
-    stage_record["diff_vs_gt"]["left"]["cy"] = current.left.cy - ground_truth_.left.cy;
-
-    // 右相机内参差异
-    stage_record["diff_vs_gt"]["right"]["fx"] = current.right.fx - ground_truth_.right.fx;
-    stage_record["diff_vs_gt"]["right"]["fy"] = current.right.fy - ground_truth_.right.fy;
-    stage_record["diff_vs_gt"]["right"]["cx"] = current.right.cx - ground_truth_.right.cx;
-    stage_record["diff_vs_gt"]["right"]["cy"] = current.right.cy - ground_truth_.right.cy;
-
-    // 外参差异
-    const double tx_diff = current.extrinsics.t.at<double>(0, 0) - ground_truth_.extrinsics.t.at<double>(0, 0);
-    const double ty_diff = current.extrinsics.t.at<double>(1, 0) - ground_truth_.extrinsics.t.at<double>(1, 0);
-    const double tz_diff = current.extrinsics.t.at<double>(2, 0) - ground_truth_.extrinsics.t.at<double>(2, 0);
-
-    stage_record["diff_vs_gt"]["extrinsics"]["t"] = {tx_diff, ty_diff, tz_diff};
-
-    // 基线距离对比
-    const double baseline_current = std::sqrt(
-        current.extrinsics.t.at<double>(0, 0) * current.extrinsics.t.at<double>(0, 0) +
-        current.extrinsics.t.at<double>(1, 0) * current.extrinsics.t.at<double>(1, 0) +
-        current.extrinsics.t.at<double>(2, 0) * current.extrinsics.t.at<double>(2, 0));
-    const double baseline_gt = std::sqrt(
-        ground_truth_.extrinsics.t.at<double>(0, 0) * ground_truth_.extrinsics.t.at<double>(0, 0) +
-        ground_truth_.extrinsics.t.at<double>(1, 0) * ground_truth_.extrinsics.t.at<double>(1, 0) +
-        ground_truth_.extrinsics.t.at<double>(2, 0) * ground_truth_.extrinsics.t.at<double>(2, 0));
-    stage_record["diff_vs_gt"]["extrinsics"]["baseline"] = baseline_current - baseline_gt;
-
-    // 旋转误差
-    cv::Mat R_diff = current.extrinsics.R * ground_truth_.extrinsics.R.t();
-    const double tr = R_diff.at<double>(0, 0) + R_diff.at<double>(1, 1) + R_diff.at<double>(2, 2);
-    double cos_theta = (tr - 1.0) * 0.5;
-    cos_theta = std::max(-1.0, std::min(1.0, cos_theta));
-    const double rot_error_deg = std::acos(cos_theta) * 57.2957795130823208768;
-    stage_record["diff_vs_gt"]["extrinsics"]["rotation_error_deg"] = rot_error_deg;
+    stage_record["diff_vs_gt"]["left"] = IntrinsicsDiffToJson(current.left, ground_truth_.left);
+    stage_record["diff_vs_gt"]["right"] = IntrinsicsDiffToJson(current.right, ground_truth_.right);
+    stage_record["diff_vs_gt"]["extrinsics"] = ExtrinsicsDiffToJson(current.extrinsics, ground_truth_.extrinsics);
   }
 
   optimization_history_.push_back(stage_record);
 }
 
+// ─── Solve ──────────────────────────────────────────────────────────────────
+
 bool OfflineStereoBA::Solve(StereoCamera& result)
 {
-  if (!BuildTracks()) {
+  // ── Track building ──────────────────────────────────────────────────────
+  TrackBuildResult build_result;
+  if (!BuildTracks(input_.pairs,
+                   options_.max_match_score,
+                   options_.min_pair_inliers,
+                   options_.min_pair_inlier_ratio,
+                   options_.min_track_len,
+                   build_result)) {
     return false;
   }
 
+  tracks_.swap(build_result.tracks);
+  frames_.swap(build_result.frames);
+  frame_ids_.swap(build_result.frame_ids);
+  images_.swap(build_result.images);
+  num_tracks_ = build_result.num_tracks;
+  num_observations_ = build_result.num_observations;
+
+  // ── Frame rotation initialization ───────────────────────────────────────
   std::vector<int> registration_order;
-  if (!InitializeFrameRotations(registration_order)) {
+  if (!InitializeFrameRotations(input_.init_camera, tracks_, frames_,
+                                 registration_order, fixed_frame_idx_)) {
     return false;
   }
 
-  if (!InitializeTrackPoints()) {
+  // ── Track point initialization ──────────────────────────────────────────
+  if (!InitializeTrackPoints(input_.init_camera, extrinsics_, frames_, tracks_)) {
     return false;
   }
 
@@ -1213,6 +383,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     return false;
   }
 
+  // ── Incremental BA ────────────────────────────────────────────────────
   std::vector<char> active_frames(frames_.size(), 0);
   active_frames[registration_order[0]] = 1;
 
@@ -1227,7 +398,6 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     active_frames[frame_idx] = 1;
     successful_registrations++;
 
-    // 增量BA：只优化当前新注册的帧
     ceres::Solver::Summary incremental_summary;
     double step_init_rmse = 0.0;
     double step_final_rmse = 0.0;
@@ -1236,7 +406,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                             incremental_summary,
                             step_init_rmse,
                             step_final_rmse,
-                            frame_idx)) {  // 传入当前新注册的帧索引
+                            frame_idx)) {
       if (!have_rmse) {
         init_reproj_error_ = step_init_rmse;
         have_rmse = true;
@@ -1247,7 +417,6 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                 << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                 << step_final_rmse << " px" << std::endl;
 
-      // 输出和记录当前结果与真值的对比
       std::string stage_name = "Incremental BA - Frame " + std::to_string(i + 1);
       PrintCurrentVsGroundTruth(stage_name);
       RecordOptimizationStage(stage_name, step_final_rmse);
@@ -1255,7 +424,6 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
 
     if (options_.global_opt_interval > 0 &&
         successful_registrations % options_.global_opt_interval == 0) {
-      // 周期性全局BA：优化所有已注册帧（除参考帧外）
       ceres::Solver::Summary periodic_summary;
       double global_init_rmse = 0.0;
       double global_final_rmse = 0.0;
@@ -1263,7 +431,7 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                               options_.max_iter,
                               periodic_summary,
                               global_init_rmse,
-                              global_final_rmse)) {  // 未传入frame_to_optimize，使用默认值-1（全局BA模式）
+                              global_final_rmse)) {
         if (!have_rmse) {
           init_reproj_error_ = global_init_rmse;
           have_rmse = true;
@@ -1274,7 +442,6 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                   << global_final_rmse << " px" << std::endl;
 
-        // 输出和记录当前结果与真值的对比
         std::string stage_name = "Periodic Global BA - Frame " + std::to_string(i + 1);
         PrintCurrentVsGroundTruth(stage_name);
         RecordOptimizationStage(stage_name, global_final_rmse);
@@ -1282,13 +449,13 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     }
   }
 
-  // 最终全局BA：优化所有帧（除参考帧外）
+  // ── Final global BA ───────────────────────────────────────────────────
   std::fill(active_frames.begin(), active_frames.end(), 1);
   if (!RunBundleAdjustment(active_frames,
                            options_.max_iter,
                            summary_,
                            init_reproj_error_,
-                           final_reproj_error_)) {  // 未传入frame_to_optimize，使用默认值-1（全局BA模式）
+                           final_reproj_error_)) {
     return false;
   }
 
@@ -1298,34 +465,10 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   std::cout << "Reprojection error: init=" << std::fixed << std::setprecision(4) << init_reproj_error_
             << " px, final=" << final_reproj_error_ << " px" << std::endl;
 
-  // 输出和记录最终优化结果与真值的对比
   PrintCurrentVsGroundTruth("Final Global BA");
   RecordOptimizationStage("Final Global BA", final_reproj_error_);
 
-  // ── FOV sanity check helper ───────────────────────────────────────────────
-  // Use the principal point (cx) as a proxy for the half image width.
-  // Horizontal half-FOV = atan(cx / fx).  Reject results outside [10°, 160°].
-  const double kMinFovDeg = 10.0;
-  const double kMaxFovDeg = 160.0;
-  const double kDegPerRad = 180.0 / M_PI;
-
-  auto check_fov = [&](const std::vector<double>& intr, const char* name) -> bool {
-    const double fx = intr[0];
-    const double cx = intr[2];
-    if (fx <= 0.0 || cx <= 0.0) {
-      std::cerr << name << " has non-positive fx or cx after BA." << std::endl;
-      return false;
-    }
-    const double fov_deg = 2.0 * std::atan(cx / fx) * kDegPerRad;
-    if (fov_deg < kMinFovDeg || fov_deg > kMaxFovDeg) {
-      std::cerr << name << " estimated FOV " << fov_deg << " deg is outside ["
-                << kMinFovDeg << ", " << kMaxFovDeg << "] deg." << std::endl;
-      return false;
-    }
-    return true;
-  };
-
-  // ── Iterative post-BA outlier rejection ───────────────────────────────────
+  // ── Iterative post-BA outlier rejection ───────────────────────────────
   for (int round = 0; round < options_.max_outlier_rejection_rounds; ++round) {
     const int n_rejected = RejectOutliers(options_.outlier_rejection_threshold);
     if (n_rejected == 0) break;
@@ -1345,9 +488,8 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
     PrintCurrentVsGroundTruth(stage_name);
     RecordOptimizationStage(stage_name, rej_final_rmse);
 
-    // 每轮 BA 后立即检查 FOV，内参发散则提前终止
-    if (!check_fov(intrinsics_left_,  "Left camera") ||
-        !check_fov(intrinsics_right_, "Right camera")) {
+    if (!CheckFov(intrinsics_left_,  "Left camera") ||
+        !CheckFov(intrinsics_right_, "Right camera")) {
       break;
     }
   }
@@ -1364,8 +506,8 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
               << " px exceeds threshold " << options_.max_reproj_error << " px." << std::endl;
   }
 
-  const bool pass_fov = check_fov(intrinsics_left_,  "Left camera") &&
-                        check_fov(intrinsics_right_, "Right camera");
+  const bool pass_fov = CheckFov(intrinsics_left_,  "Left camera") &&
+                        CheckFov(intrinsics_right_, "Right camera");
 
   ApplyResult(result);
   return converged && pass_reproj && pass_fov;
