@@ -47,6 +47,83 @@ void OfflineStereoBA::SetGroundTruth(const StereoCamera& gt)
   ground_truth_ = gt;
 }
 
+void OfflineStereoBA::LoadFramePoses(const nlohmann::json& poses_json)
+{
+  frame_poses_json_ = poses_json;
+}
+
+void OfflineStereoBA::ApplyFramePosesToFrames()
+{
+  if (frame_poses_json_.empty() || !frame_poses_json_.contains("frames")) {
+    return;
+  }
+
+  const nlohmann::json& frames_json = frame_poses_json_.at("frames");
+  if (!frames_json.is_array()) {
+    return;
+  }
+
+  // Build a map from image name to pose data
+  std::map<std::string, nlohmann::json> left_image_to_pose;
+  for (const auto& frame_json : frames_json) {
+    if (!frame_json.contains("left_image") || !frame_json.contains("left_pose")) {
+      continue;
+    }
+    std::string left_image = frame_json.at("left_image").get<std::string>();
+    left_image_to_pose[left_image] = frame_json.at("left_pose");
+  }
+
+  // Apply ground truth poses to frames
+  for (size_t fi = 0; fi < frames_.size(); ++fi) {
+    FrameState& frame = frames_[fi];
+
+    // Find the left image name for this frame
+    if (frame.left_image_idx < 0 || frame.left_image_idx >= static_cast<int>(images_.size())) {
+      continue;
+    }
+
+    const std::string& left_image_name = images_[frame.left_image_idx].name;
+    auto it = left_image_to_pose.find(left_image_name);
+    if (it == left_image_to_pose.end()) {
+      continue;
+    }
+
+    const nlohmann::json& pose_json = it->second;
+    if (!pose_json.contains("R") || !pose_json.contains("t")) {
+      continue;
+    }
+
+    // Extract R and t
+    const std::vector<double> R_vec = pose_json.at("R").get<std::vector<double>>();
+    const std::vector<double> t_vec = pose_json.at("t").get<std::vector<double>>();
+
+    if (R_vec.size() != 9 || t_vec.size() != 3) {
+      continue;
+    }
+
+    // Convert rotation matrix to Rodrigues vector
+    cv::Mat R = (cv::Mat_<double>(3, 3) << R_vec[0], R_vec[1], R_vec[2],
+                                            R_vec[3], R_vec[4], R_vec[5],
+                                            R_vec[6], R_vec[7], R_vec[8]);
+    cv::Mat rvec;
+    cv::Rodrigues(R, rvec);
+
+    frame.has_gt_pose = true;
+    frame.gt_rvec = {rvec.at<double>(0), rvec.at<double>(1), rvec.at<double>(2)};
+    frame.gt_tvec = {t_vec[0], t_vec[1], t_vec[2]};
+  }
+
+  int num_frames_with_gt = 0;
+  for (const auto& frame : frames_) {
+    if (frame.has_gt_pose) {
+      num_frames_with_gt++;
+    }
+  }
+
+  std::cout << "Loaded ground truth poses for " << num_frames_with_gt
+            << " / " << frames_.size() << " frames." << std::endl;
+}
+
 // ─── RunBundleAdjustment ────────────────────────────────────────────────────
 
 bool OfflineStereoBA::RunBundleAdjustment(const std::vector<char>& active_frames,
@@ -313,6 +390,42 @@ void OfflineStereoBA::PrintCurrentVsGroundTruth(const std::string& stage_name) c
   const double rot_error_deg = RotationErrorDeg(current.extrinsics.R, ground_truth_.extrinsics.R);
 
   std::cout << "  rotation_error: " << rot_error_deg << " degrees\n";
+
+  // ── Per-frame pose errors ─────────────────────────────────────────────────
+  int num_frames_with_gt = 0;
+  double total_rot_error = 0.0;
+  double max_rot_error = 0.0;
+
+  for (size_t fi = 0; fi < frames_.size(); ++fi) {
+    if (!frames_[fi].has_gt_pose) {
+      continue;
+    }
+    num_frames_with_gt++;
+
+    // Convert optimized rvec to rotation matrix
+    cv::Mat opt_rvec = (cv::Mat_<double>(3, 1) << frames_[fi].rvec[0], frames_[fi].rvec[1], frames_[fi].rvec[2]);
+    cv::Mat opt_R;
+    cv::Rodrigues(opt_rvec, opt_R);
+
+    // Convert GT rvec to rotation matrix
+    cv::Mat gt_rvec = (cv::Mat_<double>(3, 1) << frames_[fi].gt_rvec[0], frames_[fi].gt_rvec[1], frames_[fi].gt_rvec[2]);
+    cv::Mat gt_R;
+    cv::Rodrigues(gt_rvec, gt_R);
+
+    // Rotation error in degrees
+    double frame_rot_error = RotationErrorDeg(opt_R, gt_R);
+
+    total_rot_error += frame_rot_error;
+    max_rot_error = std::max(max_rot_error, frame_rot_error);
+  }
+
+  if (num_frames_with_gt > 0) {
+    std::cout << "\nPer-frame pose errors (with GT):\n";
+    std::cout << "  Frames with GT: " << num_frames_with_gt << " / " << frames_.size() << "\n";
+    std::cout << "  Avg rotation error: " << (total_rot_error / num_frames_with_gt) << " degrees\n";
+    std::cout << "  Max rotation error: " << max_rot_error << " degrees\n";
+  }
+
   std::cout << std::noshowpos;
   std::cout << "================================================================\n\n";
 }
@@ -342,6 +455,43 @@ void OfflineStereoBA::RecordOptimizationStage(const std::string& stage_name, dou
     stage_record["diff_vs_gt"]["extrinsics"] = ExtrinsicsDiffToJson(current.extrinsics, ground_truth_.extrinsics);
   }
 
+  // Add per-frame pose errors
+  json frame_errors = json::array();
+  double total_rot_error = 0.0;
+  int num_frames_with_gt = 0;
+
+  for (size_t fi = 0; fi < frames_.size(); ++fi) {
+    if (!frames_[fi].has_gt_pose) {
+      continue;
+    }
+    num_frames_with_gt++;
+
+    // Convert optimized rvec to rotation matrix
+    cv::Mat opt_rvec = (cv::Mat_<double>(3, 1) << frames_[fi].rvec[0], frames_[fi].rvec[1], frames_[fi].rvec[2]);
+    cv::Mat opt_R;
+    cv::Rodrigues(opt_rvec, opt_R);
+
+    // Convert GT rvec to rotation matrix
+    cv::Mat gt_rvec = (cv::Mat_<double>(3, 1) << frames_[fi].gt_rvec[0], frames_[fi].gt_rvec[1], frames_[fi].gt_rvec[2]);
+    cv::Mat gt_R;
+    cv::Rodrigues(gt_rvec, gt_R);
+
+    // Rotation error in degrees
+    double frame_rot_error = RotationErrorDeg(opt_R, gt_R);
+    total_rot_error += frame_rot_error;
+
+    json frame_error;
+    frame_error["frame_id"] = frames_[fi].frame_id;
+    frame_error["frame_idx"] = fi;
+    frame_error["rotation_error_deg"] = frame_rot_error;
+    frame_errors.push_back(frame_error);
+  }
+
+  if (num_frames_with_gt > 0) {
+    stage_record["frame_pose_errors"] = frame_errors;
+    stage_record["avg_frame_rotation_error_deg"] = total_rot_error / num_frames_with_gt;
+  }
+
   optimization_history_.push_back(stage_record);
 }
 
@@ -366,6 +516,9 @@ bool OfflineStereoBA::Solve(StereoCamera& result)
   images_.swap(build_result.images);
   num_tracks_ = build_result.num_tracks;
   num_observations_ = build_result.num_observations;
+
+  // ── Apply ground truth frame poses if available ─────────────────────────
+  ApplyFramePosesToFrames();
 
   // ── Frame rotation initialization ───────────────────────────────────────
   std::vector<int> registration_order;

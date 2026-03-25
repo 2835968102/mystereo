@@ -56,6 +56,7 @@ class OfflineStereoBA {
   bool Solve(StereoCamera& result);
 
   void SetGroundTruth(const StereoCamera& gt);
+  void LoadFramePoses(const nlohmann::json& poses_json);
 
   size_t num_tracks() const { return num_tracks_; }
   size_t num_observations() const { return num_observations_; }
@@ -75,6 +76,7 @@ class OfflineStereoBA {
                            int frame_to_optimize = -1);
   int  RejectOutliers(double threshold);
   void ApplyResult(StereoCamera& result);
+  void ApplyFramePosesToFrames();
 
   void PrintCurrentVsGroundTruth(const std::string& stage_name) const;
   void RecordOptimizationStage(const std::string& stage_name, double reproj_error);
@@ -105,6 +107,8 @@ class OfflineStereoBA {
 
   bool has_ground_truth_ = false;
   StereoCamera ground_truth_;
+
+  nlohmann::json frame_poses_json_;  // Store frame poses for later loading
 
   std::vector<nlohmann::json> optimization_history_;
 };

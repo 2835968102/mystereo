@@ -40,6 +40,11 @@ struct FrameState {
   int right_image_idx = -1;
   std::vector<double> rvec = {0.0, 0.0, 0.0};
   bool initialized = false;
+
+  // Ground truth pose (if available)
+  bool has_gt_pose = false;
+  std::vector<double> gt_rvec = {0.0, 0.0, 0.0};  // Rodrigues rotation vector
+  std::vector<double> gt_tvec = {0.0, 0.0, 0.0};  // Translation vector
 };
 
 struct ImageInfo {

@@ -58,6 +58,28 @@ int main(int argc, char** argv)
   for (const auto& p : pairs) total_matches += p.matches.size();
   cout << "Loaded " << pairs.size() << " pair(s), " << total_matches << " matches total." << endl;
 
+  // ── Filter pairs with too few matches ──────────────────────────────────────
+  const int kMinMatchesPerPair = 10;
+  vector<StereoPair> filtered_pairs;
+  size_t filtered_matches = 0;
+  size_t rejected_pairs = 0;
+
+  for (const auto& p : pairs) {
+    if (p.matches.size() >= kMinMatchesPerPair) {
+      filtered_pairs.push_back(p);
+      filtered_matches += p.matches.size();
+    } else {
+      rejected_pairs++;
+    }
+  }
+
+  pairs = filtered_pairs;
+
+  cout << "Filtered pairs: " << rejected_pairs << " pair(s) rejected (< "
+       << kMinMatchesPerPair << " matches), "
+       << pairs.size() << " pair(s) remaining with "
+       << filtered_matches << " matches." << endl;
+
   // ── Optimise ───────────────────────────────────────────────────────────────
   StereoOptimizer optimizer(pairs, init_camera, max_iter, max_reproj_error);
   StereoCamera    result_camera;

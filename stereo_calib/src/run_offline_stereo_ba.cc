@@ -143,6 +143,28 @@ int main(int argc, char** argv)
   std::cout << "Loaded " << input.pairs.size() << " pair records, "
             << raw_matches << " raw matches." << std::endl;
 
+  // ========== Filter pairs with too few matches ==========
+  const int kMinMatchesPerPair = 50;
+  std::vector<RawImagePair> filtered_pairs;
+  std::size_t filtered_matches = 0;
+  std::size_t rejected_pairs = 0;
+
+  for (std::size_t i = 0; i < input.pairs.size(); ++i) {
+    if (input.pairs[i].matches.size() >= kMinMatchesPerPair) {
+      filtered_pairs.push_back(input.pairs[i]);
+      filtered_matches += input.pairs[i].matches.size();
+    } else {
+      rejected_pairs++;
+    }
+  }
+
+  input.pairs = filtered_pairs;
+
+  std::cout << "Filtered pairs: " << rejected_pairs << " pairs rejected (< "
+            << kMinMatchesPerPair << " matches), "
+            << input.pairs.size() << " pairs remaining with "
+            << filtered_matches << " matches." << std::endl;
+
   // Load ground truth (optional)
   StereoCamera gt_camera;
   bool has_gt = false;
@@ -167,11 +189,38 @@ int main(int argc, char** argv)
     std::cout << "Ground truth loaded from: " << gt_source << std::endl;
   }
 
+  // ========== Load frame poses (optional) ==========
+  const std::string kForcedPosesPathA = "stereo_calib/data/camera_poses.json";
+  const std::string kForcedPosesPathB = "../data/camera_poses.json";
+  json input_poses_json;
+  bool poses_loaded = false;
+
+  std::ifstream poses_fin(kForcedPosesPathA.c_str());
+  if (!poses_fin.is_open()) {
+    poses_fin.close();
+    poses_fin.open(kForcedPosesPathB.c_str());
+  }
+
+  if (poses_fin.is_open()) {
+    try {
+      poses_fin >> input_poses_json;
+      poses_loaded = true;
+      std::cout << "Loaded camera poses from camera_poses.json" << std::endl;
+    } catch (...) {
+      std::cerr << "Warning: Failed to parse camera_poses.json" << std::endl;
+    }
+    poses_fin.close();
+  }
+
   // ========== Run optimization ==========
   OfflineStereoBA optimizer(input, options);
 
   if (has_gt) {
     optimizer.SetGroundTruth(gt_camera);
+  }
+
+  if (poses_loaded) {
+    optimizer.LoadFramePoses(input_poses_json);
   }
 
   StereoCamera result_camera;
