@@ -13,23 +13,6 @@
 
 namespace stereocalib {
 
-struct RawPairMatch {
-  cv::Point2f pt_a;
-  cv::Point2f pt_b;
-  double score = 0.0;
-};
-
-struct RawImagePair {
-  std::string image_a;
-  std::string image_b;
-  std::vector<RawPairMatch> matches;
-};
-
-struct OfflineBAInput {
-  StereoCamera init_camera;
-  std::vector<RawImagePair> pairs;
-};
-
 class OfflineStereoBA {
  public:
   struct Options {

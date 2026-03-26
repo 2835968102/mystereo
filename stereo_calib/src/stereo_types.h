@@ -99,6 +99,28 @@ struct StereoPair {
   std::vector<StereoMatch>  matches;
 };
 
+// ─── Raw match data (for offline BA from JSON) ──────────────────────────────
+
+// One raw match with score
+struct RawPairMatch {
+  cv::Point2f pt_a;
+  cv::Point2f pt_b;
+  double score = 0.0;
+};
+
+// One raw image pair with matches
+struct RawImagePair {
+  std::string image_a;
+  std::string image_b;
+  std::vector<RawPairMatch> matches;
+};
+
+// Input for offline BA: initial camera + image pairs
+struct OfflineBAInput {
+  StereoCamera init_camera;
+  std::vector<RawImagePair> pairs;
+};
+
 }  // namespace stereocalib
 
 #endif  // STEREO_CALIB_SRC_STEREO_TYPES_H

@@ -1,6 +1,5 @@
 #include "track_builder.h"
 
-#include "offline_stereo_ba.h"  // for RawImagePair, RawPairMatch
 
 #include <algorithm>
 #include <cmath>
@@ -12,16 +11,11 @@
 
 #include <opencv2/calib3d.hpp>
 
+#include "core/camera_math.h"
+
 namespace stereocalib {
 namespace {
 
-cv::Mat ToRotation(const std::vector<double>& rvec)
-{
-  const cv::Mat rv = (cv::Mat_<double>(3, 1) << rvec[0], rvec[1], rvec[2]);
-  cv::Mat R;
-  cv::Rodrigues(rv, R);
-  return R;
-}
 
 bool EstimatePureRotation(const std::vector<cv::Point2f>& pts_from,
                           const std::vector<cv::Point2f>& pts_to,
@@ -573,7 +567,7 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
       continue;
     }
 
-    const cv::Mat R_from = ToRotation(frames[best_from].rvec);
+    const cv::Mat R_from = camera_math::ToRotation(frames[best_from].rvec);
     const cv::Mat R_to = R_rel * R_from;
 
     cv::Mat rvec_to;
@@ -654,7 +648,7 @@ bool InitializeTrackPoints(const StereoCamera& init_camera,
           continue;
         }
 
-        const cv::Mat R_lw = ToRotation(frames[obs_l.frame_idx].rvec);
+        const cv::Mat R_lw = camera_math::ToRotation(frames[obs_l.frame_idx].rvec);
         const cv::Mat Xw = R_lw.t() * Xl;
 
         track.point3d[0] = Xw.at<double>(0, 0);
@@ -685,7 +679,7 @@ bool InitializeTrackPoints(const StereoCamera& init_camera,
              p_n[0].y,
              1.0);
 
-      const cv::Mat R_lw = ToRotation(frames[obs.frame_idx].rvec);
+      const cv::Mat R_lw = camera_math::ToRotation(frames[obs.frame_idx].rvec);
       const cv::Mat Xw = R_lw.t() * (5.0 * ray_l);
       track.point3d[0] = Xw.at<double>(0, 0);
       track.point3d[1] = Xw.at<double>(1, 0);

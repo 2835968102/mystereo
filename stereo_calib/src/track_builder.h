@@ -17,9 +17,6 @@
 
 namespace stereocalib {
 
-// Forward declaration (defined in offline_stereo_ba.h)
-struct RawImagePair;
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 struct TrackObservation {

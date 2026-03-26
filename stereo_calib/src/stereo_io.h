@@ -11,9 +11,6 @@
 
 #include "stereo_types.h"
 
-// Forward declaration for RawImagePair (defined in offline_stereo_ba.h).
-namespace stereocalib { struct RawImagePair; }
-
 namespace stereocalib {
 
 // ─── StereoCamera JSON serialization ─────────────────────────────────────────

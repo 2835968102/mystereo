@@ -11,6 +11,7 @@
 #include <opencv2/calib3d.hpp>
 
 #include "stereo_eval.h"
+#include "core/camera_math.h"
 #include "stereo_factors.h"
 #include "stereo_io.h"
 #include "track_builder.h"
@@ -18,13 +19,6 @@
 namespace stereocalib {
 namespace {
 
-cv::Mat ToRotation(const std::vector<double>& rvec)
-{
-  const cv::Mat rv = (cv::Mat_<double>(3, 1) << rvec[0], rvec[1], rvec[2]);
-  cv::Mat R;
-  cv::Rodrigues(rv, R);
-  return R;
-}
 
 }  // namespace
 
@@ -290,7 +284,7 @@ int OfflineStereoBA::RejectOutliers(double threshold)
       if (obs.rejected) continue;
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames_.size())) continue;
 
-      const cv::Mat X_l = ToRotation(frames_[obs.frame_idx].rvec) * X_w;
+      const cv::Mat X_l = camera_math::ToRotation(frames_[obs.frame_idx].rvec) * X_w;
 
       cv::Mat X_cam = X_l;
       const double* intr = intrinsics_left_.data();

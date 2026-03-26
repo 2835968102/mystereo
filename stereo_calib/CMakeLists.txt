@@ -37,6 +37,7 @@ set(EXTERNAL_LIBRARIES
 include_directories(src)
 
 set(STEREO_CORE_SRCS
+    src/core/camera_math.cc
     src/stereo_factors.cc
     src/stereo_io.cc
     src/stereo_eval.cc

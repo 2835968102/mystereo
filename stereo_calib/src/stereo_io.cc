@@ -1,6 +1,5 @@
 #include "stereo_io.h"
 
-#include "offline_stereo_ba.h"   // for RawImagePair, RawPairMatch
 
 #include <algorithm>
 #include <cctype>
