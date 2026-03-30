@@ -37,6 +37,11 @@ set(EXTERNAL_LIBRARIES
 include_directories(src)
 
 set(STEREO_CORE_SRCS
+    src/services/track_service.cc
+    src/services/initialization_service.cc
+    src/services/bundle_adjustment_service.cc
+    src/services/outlier_rejection_service.cc
+    src/services/evaluation_service.cc
     src/core/camera_math.cc
     src/stereo_factors.cc
     src/stereo_io.cc
