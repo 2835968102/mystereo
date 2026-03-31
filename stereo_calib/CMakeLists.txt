@@ -42,6 +42,7 @@ set(STEREO_CORE_SRCS
     src/services/bundle_adjustment_service.cc
     src/services/outlier_rejection_service.cc
     src/services/evaluation_service.cc
+    src/coordinators/optimization_coordinator.cc
     src/core/camera_math.cc
     src/stereo_factors.cc
     src/stereo_io.cc
