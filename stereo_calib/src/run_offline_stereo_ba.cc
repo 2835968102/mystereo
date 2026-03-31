@@ -5,7 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "offline_stereo_ba.h"
+#include "coordinators/optimization_coordinator.h"
 #include "stereo_eval.h"
 #include "stereo_io.h"
 
@@ -20,7 +20,7 @@ int main(int argc, char** argv)
   const std::string kForcedInitPathA = "stereo_calib/data/example_init_params.txt";
   const std::string kForcedInitPathB = "../data/example_init_params.txt";
 
-  OfflineStereoBA::Options options;
+  OptimizationConfig config;
 
   // ========== Argument parsing ==========
   for (int i = 1; i < argc; ++i) {
@@ -51,25 +51,25 @@ int main(int argc, char** argv)
       ++i;
       std::cout << "Warning: --init_baseline is deprecated and ignored." << std::endl;
     } else if (arg == "--max_iter" && i + 1 < argc) {
-      options.max_iter = std::stoi(argv[++i]);
+      config.max_iter = std::stoi(argv[++i]);
     } else if (arg == "--incremental_max_iter" && i + 1 < argc) {
-      options.incremental_max_iter = std::stoi(argv[++i]);
+      config.incremental_max_iter = std::stoi(argv[++i]);
     } else if (arg == "--global_opt_interval" && i + 1 < argc) {
-      options.global_opt_interval = std::stoi(argv[++i]);
+      config.global_opt_interval = std::stoi(argv[++i]);
     } else if (arg == "--min_track_len" && i + 1 < argc) {
-      options.min_track_len = std::stoi(argv[++i]);
+      config.min_track_len = std::stoi(argv[++i]);
     } else if (arg == "--huber" && i + 1 < argc) {
-      options.huber_delta = std::stod(argv[++i]);
+      config.huber_delta = std::stod(argv[++i]);
     } else if (arg == "--max_score" && i + 1 < argc) {
-      options.max_match_score = std::stod(argv[++i]);
+      config.max_match_score = std::stod(argv[++i]);
     } else if (arg == "--min_pair_inliers" && i + 1 < argc) {
-      options.min_pair_inliers = std::stoi(argv[++i]);
+      config.min_pair_inliers = std::stoi(argv[++i]);
     } else if (arg == "--min_pair_inlier_ratio" && i + 1 < argc) {
-      options.min_pair_inlier_ratio = std::stod(argv[++i]);
+      config.min_pair_inlier_ratio = std::stod(argv[++i]);
     } else if (arg == "--fix_distortion") {
-      options.fix_distortion = true;
+      config.fix_distortion = true;
     } else if (arg == "--aspect_ratio_prior" && i + 1 < argc) {
-      options.aspect_ratio_prior_weight = std::stod(argv[++i]);
+      config.aspect_ratio_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--known_baseline" && i + 1 < argc) {
       ++i;
       std::cout << "Warning: --known_baseline is deprecated and ignored." << std::endl;
@@ -77,13 +77,13 @@ int main(int argc, char** argv)
       ++i;
       std::cout << "Warning: --known_baseline_weight is deprecated and ignored." << std::endl;
     } else if (arg == "--max_reproj_error" && i + 1 < argc) {
-      options.max_reproj_error = std::stod(argv[++i]);
+      config.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
-      options.baseline_prior_weight = std::stod(argv[++i]);
+      config.baseline_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {
-      options.outlier_rejection_threshold = std::stod(argv[++i]);
+      config.outlier_rejection_threshold = std::stod(argv[++i]);
     } else if (arg == "--outlier_rounds" && i + 1 < argc) {
-      options.max_outlier_rejection_rounds = std::stoi(argv[++i]);
+      config.max_outlier_rejection_rounds = std::stoi(argv[++i]);
     }
   }
 
@@ -212,51 +212,50 @@ int main(int argc, char** argv)
     poses_fin.close();
   }
 
-  // ========== Run optimization ==========
-  OfflineStereoBA optimizer(input, options);
+  // ========== Run optimization using OptimizationCoordinator ==========
+  OptimizationCoordinator coordinator;
 
   if (has_gt) {
-    optimizer.SetGroundTruth(gt_camera);
+    coordinator.SetGroundTruth(gt_camera);
   }
 
   if (poses_loaded) {
-    optimizer.LoadFramePoses(input_poses_json);
+    coordinator.LoadFramePoses(input_poses_json);
   }
 
-  StereoCamera result_camera;
-  bool success = optimizer.Solve(result_camera);
+  OptimizationResult result = coordinator.RunIncrementalBA(input, config);
 
-  if (!success) {
+  if (!result.success) {
     std::cerr << "Offline stereo BA did not pass the quality gate, writing best estimate anyway." << std::endl;
   }
 
   // ========== Write result ==========
   json out;
-  out["left"] = IntrinsicsToJson(result_camera.left);
-  out["right"] = IntrinsicsToJson(result_camera.right);
-  out["extrinsics"] = ExtrinsicsToJson(result_camera.extrinsics);
-  out["success"] = success;
-  out["num_tracks"] = optimizer.num_tracks();
-  out["num_observations"] = optimizer.num_observations();
-  out["num_frames"] = optimizer.num_frames();
-  out["init_reproj_error"] = optimizer.init_reproj_error();
-  out["final_reproj_error"] = optimizer.final_reproj_error();
+  out["left"] = IntrinsicsToJson(result.camera.left);
+  out["right"] = IntrinsicsToJson(result.camera.right);
+  out["extrinsics"] = ExtrinsicsToJson(result.camera.extrinsics);
+  out["success"] = result.success;
+  out["num_tracks"] = result.num_tracks;
+  out["num_observations"] = result.num_observations;
+  out["num_frames"] = result.num_frames;
+  out["init_reproj_error"] = result.init_reproj_error;
+  out["final_reproj_error"] = result.final_reproj_error;
 
-  out["optimization_history"] = optimizer.GetOptimizationHistory();
+  out["optimization_history"] = result.optimization_history;
 
   if (has_gt) {
     out["gt_source"] = gt_source;
     out["diff_vs_gt"] = {
-        {"left", IntrinsicsDiffToJson(result_camera.left, gt_camera.left)},
-        {"right", IntrinsicsDiffToJson(result_camera.right, gt_camera.right)},
-        {"extrinsics", ExtrinsicsDiffToJson(result_camera.extrinsics, gt_camera.extrinsics)},
+        {"left", IntrinsicsDiffToJson(result.camera.left, gt_camera.left)},
+        {"right", IntrinsicsDiffToJson(result.camera.right, gt_camera.right)},
+        {"extrinsics", ExtrinsicsDiffToJson(result.camera.extrinsics, gt_camera.extrinsics)},
     };
-    PrintDiffVsGT(result_camera, gt_camera, gt_source);
+    PrintDiffVsGT(result.camera, gt_camera, gt_source);
   }
 
   std::ofstream fout(output_path.c_str());
   fout << out.dump(4) << std::endl;
 
   std::cout << "Result written to " << output_path << std::endl;
-  return success ? 0 : 1;
+  return result.success ? 0 : 1;
 }
