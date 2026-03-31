@@ -1,8 +1,6 @@
 /*
  * Track building, frame initialization and point initialization for
  * multi-frame offline stereo BA.
- *
- * Extracted from OfflineStereoBA to keep the coordinator class thin.
  */
 
 #ifndef STEREO_CALIB_SRC_TRACK_BUILDER_H

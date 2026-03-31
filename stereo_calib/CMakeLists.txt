@@ -49,7 +49,6 @@ set(STEREO_CORE_SRCS
     src/stereo_eval.cc
     src/track_builder.cc
     src/stereo_optimizer.cc
-    src/offline_stereo_ba.cc
 )
 
 # Core library (reusable by tests, other apps)
