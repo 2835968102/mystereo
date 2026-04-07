@@ -114,6 +114,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
 
   std::vector<Track> tracks = std::move(build_result.tracks);
   std::vector<FrameState> frames = std::move(build_result.frames);
+  const std::vector<ImageInfo>& images = build_result.images;
   result.num_tracks = build_result.num_tracks;
   result.num_observations = build_result.num_observations;
   result.num_frames = frames.size();
@@ -123,7 +124,14 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
 
   // ── Step 3: Frame rotation initialization ─────────────────────────────────
   FrameInitResult frame_init = init_service_->InitializeFrameRotations(
-      input.init_camera, tracks, frames);
+      input.init_camera,
+      input.pairs,
+      images,
+      config.max_match_score,
+      config.min_pair_inliers,
+      config.min_pair_inlier_ratio,
+      tracks,
+      frames);
   if (!frame_init.success || frame_init.registration_order.empty()) {
     std::cerr << "Frame rotation initialization failed." << std::endl;
     return result;

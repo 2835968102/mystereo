@@ -6,18 +6,27 @@ namespace stereocalib {
 
 FrameInitResult InitializationService::InitializeFrameRotations(
     const StereoCamera& init_camera,
+    const std::vector<RawImagePair>& pairs,
+    const std::vector<ImageInfo>& images,
+    double max_match_score,
+    int min_pair_inliers,
+    double min_pair_inlier_ratio,
     const std::vector<Track>& tracks,
     std::vector<FrameState>& frames) {
   FrameInitResult result;
-  
-  // Delegate to the existing function in track_builder.cc
+
   result.success = stereocalib::InitializeFrameRotations(
       init_camera,
+      pairs,
+      images,
+      max_match_score,
+      min_pair_inliers,
+      min_pair_inlier_ratio,
       tracks,
       frames,
       result.registration_order,
       result.fixed_frame_idx);
-  
+
   return result;
 }
 

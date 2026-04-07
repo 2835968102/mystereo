@@ -28,13 +28,18 @@ class IInitializationService {
  public:
   virtual ~IInitializationService() = default;
 
-  /// Initialize frame rotations using pure rotation estimation.
+  /// Initialize frame rotations using raw-pair score ordering and pure rotation estimation.
   /// @param init_camera Initial stereo camera parameters.
-  /// @param tracks Feature tracks.
+  /// @param tracks Feature tracks used only for correspondence extraction during rotation estimation.
   /// @param frames Frame states to initialize (modified in place).
   /// @return Initialization result with registration order.
   virtual FrameInitResult InitializeFrameRotations(
       const StereoCamera& init_camera,
+      const std::vector<RawImagePair>& pairs,
+      const std::vector<ImageInfo>& images,
+      double max_match_score,
+      int min_pair_inliers,
+      double min_pair_inlier_ratio,
       const std::vector<Track>& tracks,
       std::vector<FrameState>& frames) = 0;
 
@@ -60,6 +65,11 @@ class InitializationService : public IInitializationService {
 
   FrameInitResult InitializeFrameRotations(
       const StereoCamera& init_camera,
+      const std::vector<RawImagePair>& pairs,
+      const std::vector<ImageInfo>& images,
+      double max_match_score,
+      int min_pair_inliers,
+      double min_pair_inlier_ratio,
       const std::vector<Track>& tracks,
       std::vector<FrameState>& frames) override;
 

@@ -47,6 +47,7 @@ set(STEREO_CORE_SRCS
     src/stereo_factors.cc
     src/stereo_io.cc
     src/stereo_eval.cc
+    src/frame_score_utils.cc
     src/track_builder.cc
     src/stereo_optimizer.cc
 )

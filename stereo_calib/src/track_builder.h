@@ -84,6 +84,11 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
                  TrackBuildResult& result);
 
 bool InitializeFrameRotations(const StereoCamera& init_camera,
+                               const std::vector<RawImagePair>& pairs,
+                               const std::vector<ImageInfo>& images,
+                               double max_match_score,
+                               int min_pair_inliers,
+                               double min_pair_inlier_ratio,
                                const std::vector<Track>& tracks,
                                std::vector<FrameState>& frames,
                                std::vector<int>& registration_order,

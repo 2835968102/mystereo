@@ -12,6 +12,7 @@
 #include <opencv2/calib3d.hpp>
 
 #include "core/camera_math.h"
+#include "frame_score_utils.h"
 
 namespace stereocalib {
 namespace {
@@ -51,6 +52,7 @@ bool EstimatePureRotation(const std::vector<cv::Point2f>& pts_from,
   R_rel = R;
   return true;
 }
+
 
 std::string Basename(const std::string& path)
 {
@@ -451,6 +453,11 @@ size_t CollectLeftLeftCorrespondences(const std::vector<Track>& tracks,
 // ─── InitializeFrameRotations ───────────────────────────────────────────────
 
 bool InitializeFrameRotations(const StereoCamera& init_camera,
+                               const std::vector<RawImagePair>& pairs,
+                               const std::vector<ImageInfo>& images,
+                               double max_match_score,
+                               int min_pair_inliers,
+                               double min_pair_inlier_ratio,
                                const std::vector<Track>& tracks,
                                std::vector<FrameState>& frames,
                                std::vector<int>& registration_order,
@@ -464,24 +471,27 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
   const cv::Mat K = init_camera.left.K();
   const cv::Mat dist = init_camera.left.dist();
 
-  // Pick the start frame with highest number of left observations.
   int start_frame = 0;
-  size_t best_count = 0;
-  for (size_t fi = 0; fi < frames.size(); ++fi) {
-    size_t cnt = 0;
-    for (size_t ti = 0; ti < tracks.size(); ++ti) {
-      const Track& track = tracks[ti];
-      for (size_t oi = 0; oi < track.observations.size(); ++oi) {
-        const TrackObservation& obs = track.observations[oi];
-        if (obs.frame_idx == static_cast<int>(fi) && obs.is_left) {
-          cnt++;
-          break;
+  if (!SelectBootstrapStartFrame(pairs, images, max_match_score,
+                                 min_pair_inliers, min_pair_inlier_ratio,
+                                 start_frame)) {
+    size_t best_count = 0;
+    for (size_t fi = 0; fi < frames.size(); ++fi) {
+      size_t cnt = 0;
+      for (size_t ti = 0; ti < tracks.size(); ++ti) {
+        const Track& track = tracks[ti];
+        for (size_t oi = 0; oi < track.observations.size(); ++oi) {
+          const TrackObservation& obs = track.observations[oi];
+          if (obs.frame_idx == static_cast<int>(fi) && obs.is_left) {
+            cnt++;
+            break;
+          }
         }
       }
-    }
-    if (cnt > best_count) {
-      best_count = cnt;
-      start_frame = static_cast<int>(fi);
+      if (cnt > best_count) {
+        best_count = cnt;
+        start_frame = static_cast<int>(fi);
+      }
     }
   }
 
@@ -495,29 +505,12 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
   std::vector<cv::Point2f> pts_to;
 
   while (registered < frames.size()) {
-    int best_from = -1;
+    const int best_from = registration_order.back();
     int best_to = -1;
-    size_t max_overlap = 0;
 
-    for (size_t i = 0; i < frames.size(); ++i) {
-      if (!frames[i].initialized) {
-        continue;
-      }
-      for (size_t j = 0; j < frames.size(); ++j) {
-        if (frames[j].initialized) {
-          continue;
-        }
-
-        const size_t overlap = CollectLeftLeftCorrespondences(tracks, static_cast<int>(i), static_cast<int>(j), pts_from, pts_to);
-        if (overlap > max_overlap) {
-          max_overlap = overlap;
-          best_from = static_cast<int>(i);
-          best_to = static_cast<int>(j);
-        }
-      }
-    }
-
-    if (best_to < 0 || max_overlap < 8) {
+    if (!SelectNextFrameFromPrevious(pairs, images, max_match_score,
+                                     min_pair_inliers, min_pair_inlier_ratio,
+                                     best_from, frames, best_to)) {
       // Fall back to identity for the remaining frames.
       for (size_t i = 0; i < frames.size(); ++i) {
         if (!frames[i].initialized) {
@@ -530,7 +523,14 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
       break;
     }
 
-    CollectLeftLeftCorrespondences(tracks, best_from, best_to, pts_from, pts_to);
+    const size_t overlap = CollectLeftLeftCorrespondences(tracks, best_from, best_to, pts_from, pts_to);
+    if (overlap < 8) {
+      frames[best_to].initialized = true;
+      frames[best_to].rvec = frames[best_from].rvec;
+      registration_order.push_back(best_to);
+      registered++;
+      continue;
+    }
 
     // ── Pixel-disparity filter ─────────────────────────────────────────────
     {

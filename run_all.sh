@@ -38,7 +38,7 @@ echo "编译完成！"
 # 循环执行
 for SCENE in "${SCENES_1[@]}"; do
     echo "正在处理场景: $SCENE"
-    python run_pipeline.py \
+    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
         --scene "$SCENE" \
         --max_iter "$MAX_ITER" \
         --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
@@ -52,7 +52,7 @@ done
 
 for SCENE in "${SCENES_2[@]}"; do
     echo "正在处理场景: $SCENE"
-    python run_pipeline.py \
+    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
         --scene "$SCENE" \
         --max_iter "$MAX_ITER" \
         --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
