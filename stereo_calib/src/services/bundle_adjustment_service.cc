@@ -157,7 +157,7 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
   ceres::Solver::Options options;
   options.max_num_iterations = std::max(1, config.max_iterations);
   options.linear_solver_type = ceres::DENSE_QR;
-  options.num_threads = 32;
+  options.num_threads = 24;
   options.minimizer_progress_to_stdout = true;
 
   // Solve
