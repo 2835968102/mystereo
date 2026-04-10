@@ -8,7 +8,7 @@ import numpy as np
 
 
 DEFAULT_PARAM_FILE = Path("/home/hello/pml/mycalib/blender-file/stereo_panoramic_01/camera_params_0000.json")
-DEFAULT_MATCHES_FILE = Path("/home/hello/pml/mycalib/stereo_calib/result/panoramic_01_matches.json")
+DEFAULT_MATCHES_FILE = Path("/home/hello/pml/mycalib/stereo_calib/result/match_points/panoramic_01_matches.json")
 DEFAULT_OUTPUT_JSON = Path("/home/hello/pml/mycalib/match_point_test/panoramic_01_frame0000_epipolar_error.json")
 DEFAULT_OUTPUT_PLOT = Path("/home/hello/pml/mycalib/match_point_test/panoramic_01_frame0000_epipolar_error.png")
 EPS = 1e-12
