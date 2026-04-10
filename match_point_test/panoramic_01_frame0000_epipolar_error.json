@@ -138,6 +138,81 @@
       8.33818695732057e-28
     ]
   },
+  "score_error_relationship": {
+    "count": 259,
+    "score_summary": {
+      "count": 259,
+      "mean": 0.30275791505791505,
+      "median": 0.2655,
+      "rms": 0.3388300730705414,
+      "max": 0.6917
+    },
+    "d_sym_summary": {
+      "count": 259,
+      "mean": 49.567586020394394,
+      "median": 1.9999581231993007,
+      "rms": 199.91978919632103,
+      "max": 1466.0000140522993
+    },
+    "pearson_corr": 0.34133423011837266,
+    "pearson_corr_log_dsym": 0.5132405402950947,
+    "linear_fit": {
+      "slope": 434.55510230335886,
+      "intercept": -81.99741073074951
+    },
+    "score_bins": [
+      {
+        "bin_index": 0,
+        "score_min": 0.0731,
+        "score_max": 0.1668,
+        "count": 52,
+        "score_mean": 0.1418923076923077,
+        "d_sym_mean": 13.230790267487803,
+        "d_sym_median": 4.474069175423593e-05,
+        "d_sym_rms": 88.76676543591677
+      },
+      {
+        "bin_index": 1,
+        "score_min": 0.1673,
+        "score_max": 0.2234,
+        "count": 52,
+        "score_mean": 0.19303461538461536,
+        "d_sym_mean": 23.076951613311255,
+        "d_sym_median": 5.541053623441741e-05,
+        "d_sym_rms": 115.87658718261034
+      },
+      {
+        "bin_index": 2,
+        "score_min": 0.2236,
+        "score_max": 0.3037,
+        "count": 51,
+        "score_mean": 0.2644294117647059,
+        "d_sym_mean": 1.3333586025789186,
+        "d_sym_median": 1.999934330712969,
+        "d_sym_rms": 2.132846441264263
+      },
+      {
+        "bin_index": 3,
+        "score_min": 0.3066,
+        "score_max": 0.4215,
+        "count": 52,
+        "score_mean": 0.3587903846153846,
+        "d_sym_mean": 33.15385254610106,
+        "d_sym_median": 1.9999676194362515,
+        "d_sym_rms": 138.05795944210792
+      },
+      {
+        "bin_index": 4,
+        "score_min": 0.422,
+        "score_max": 0.6917,
+        "count": 52,
+        "score_mean": 0.5549057692307693,
+        "d_sym_mean": 176.1153957759965,
+        "d_sym_median": 5.999992288471341,
+        "d_sym_rms": 398.37119982981864
+      }
+    ]
+  },
   "points": [
     {
       "index": 0,

@@ -22,3 +22,17 @@ Distances (pixels):
   d1   mean=24.783793 median=0.999979 rms=99.959895 max=733.000008
   d2   mean=24.783793 median=0.999979 rms=99.959894 max=733.000006
   dsym mean=49.567586 median=1.999958 rms=199.919789 max=1466.000014
+
+
+Score vs epipolar distance:
+  valid=259 pearson(score,d_sym)=0.341334 pearson(score,log1p(d_sym))=0.513241
+  linear_fit d_sym = 434.555102 * score + -81.997411
+  score bins:
+    [0.073100, 0.166800] count=52 score_mean=0.141892 d_sym_mean=13.230790 d_sym_median=0.000045 d_sym_rms=88.766765
+    [0.167300, 0.223400] count=52 score_mean=0.193035 d_sym_mean=23.076952 d_sym_median=0.000055 d_sym_rms=115.876587
+    [0.223600, 0.303700] count=51 score_mean=0.264429 d_sym_mean=1.333359 d_sym_median=1.999934 d_sym_rms=2.132846
+    [0.306600, 0.421500] count=52 score_mean=0.358790 d_sym_mean=33.153853 d_sym_median=1.999968 d_sym_rms=138.057959
+    [0.422000, 0.691700] count=52 score_mean=0.554906 d_sym_mean=176.115396 d_sym_median=5.999992 d_sym_rms=398.371200
+
+1. pearson(score,d_sym)=0.341334                                                               
+  这是 中等偏弱的正相关。

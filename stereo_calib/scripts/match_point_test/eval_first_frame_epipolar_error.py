@@ -163,6 +163,76 @@ def summarize(values: np.ndarray, absolute: bool = False) -> dict:
     }
 
 
+def safe_correlation(x: np.ndarray, y: np.ndarray) -> float:
+    if x.size < 2 or y.size < 2:
+        return float("nan")
+    if np.allclose(x, x[0]) or np.allclose(y, y[0]):
+        return float("nan")
+    return float(np.corrcoef(x, y)[0, 1])
+
+
+def compute_score_error_relationship(points: list[dict], bin_count: int = 5) -> dict:
+    scores = np.array([point["score"] for point in points], dtype=np.float64)
+    d_sym = np.array([point["d_sym"] for point in points], dtype=np.float64)
+    valid_mask = np.isfinite(scores) & np.isfinite(d_sym)
+    valid_scores = scores[valid_mask]
+    valid_dsym = d_sym[valid_mask]
+
+    analysis = {
+        "count": int(valid_scores.size),
+        "score_summary": summarize(valid_scores),
+        "d_sym_summary": summarize(valid_dsym),
+        "pearson_corr": float("nan"),
+        "pearson_corr_log_dsym": float("nan"),
+        "linear_fit": {
+            "slope": float("nan"),
+            "intercept": float("nan"),
+        },
+        "score_bins": [],
+    }
+
+    if valid_scores.size < 2:
+        return analysis
+
+    analysis["pearson_corr"] = safe_correlation(valid_scores, valid_dsym)
+    analysis["pearson_corr_log_dsym"] = safe_correlation(valid_scores, np.log1p(valid_dsym))
+
+    if not np.allclose(valid_scores, valid_scores[0]):
+        slope, intercept = np.polyfit(valid_scores, valid_dsym, 1)
+        analysis["linear_fit"] = {
+            "slope": float(slope),
+            "intercept": float(intercept),
+        }
+
+    quantiles = np.linspace(0.0, 1.0, bin_count + 1)
+    edges = np.quantile(valid_scores, quantiles)
+    for i in range(bin_count):
+        low = edges[i]
+        high = edges[i + 1]
+        if i == bin_count - 1:
+            mask = (valid_scores >= low) & (valid_scores <= high)
+        else:
+            mask = (valid_scores >= low) & (valid_scores < high)
+        if not np.any(mask):
+            continue
+        bin_scores = valid_scores[mask]
+        bin_dsym = valid_dsym[mask]
+        analysis["score_bins"].append(
+            {
+                "bin_index": i,
+                "score_min": float(np.min(bin_scores)),
+                "score_max": float(np.max(bin_scores)),
+                "count": int(bin_scores.size),
+                "score_mean": float(np.mean(bin_scores)),
+                "d_sym_mean": float(np.mean(bin_dsym)),
+                "d_sym_median": float(np.median(bin_dsym)),
+                "d_sym_rms": float(np.sqrt(np.mean(bin_dsym ** 2))),
+            }
+        )
+
+    return analysis
+
+
 def matrix_rank_singular_values(F: np.ndarray) -> list[float]:
     return [float(v) for v in np.linalg.svd(F, compute_uv=False)]
 
@@ -245,6 +315,7 @@ def main():
     d2 = metrics["d2"]
     d_sym = metrics["d_sym"]
     singular_values = matrix_rank_singular_values(F)
+    score_error_relationship = compute_score_error_relationship(metrics["points"])
 
     summary = {
         "num_matches": int(len(pair["matches"])),
@@ -282,6 +353,7 @@ def main():
             "F": F.tolist(),
         },
         "summary": summary,
+        "score_error_relationship": score_error_relationship,
         "points": metrics["points"],
     }
 
@@ -311,6 +383,16 @@ def main():
     print(f"  d1   mean={summary['d1']['mean']:.6f} median={summary['d1']['median']:.6f} rms={summary['d1']['rms']:.6f} max={summary['d1']['max']:.6f}")
     print(f"  d2   mean={summary['d2']['mean']:.6f} median={summary['d2']['median']:.6f} rms={summary['d2']['rms']:.6f} max={summary['d2']['max']:.6f}")
     print(f"  dsym mean={summary['d_sym']['mean']:.6f} median={summary['d_sym']['median']:.6f} rms={summary['d_sym']['rms']:.6f} max={summary['d_sym']['max']:.6f}")
+    print("Score vs epipolar distance:")
+    print(f"  valid={score_error_relationship['count']} pearson(score,d_sym)={score_error_relationship['pearson_corr']:.6f} pearson(score,log1p(d_sym))={score_error_relationship['pearson_corr_log_dsym']:.6f}")
+    print(f"  linear_fit d_sym = {score_error_relationship['linear_fit']['slope']:.6f} * score + {score_error_relationship['linear_fit']['intercept']:.6f}")
+    print("  score bins:")
+    for bin_item in score_error_relationship["score_bins"]:
+        print(
+            f"    [{bin_item['score_min']:.6f}, {bin_item['score_max']:.6f}] "
+            f"count={bin_item['count']} score_mean={bin_item['score_mean']:.6f} "
+            f"d_sym_mean={bin_item['d_sym_mean']:.6f} d_sym_median={bin_item['d_sym_median']:.6f} d_sym_rms={bin_item['d_sym_rms']:.6f}"
+        )
     print(f"Output JSON        : {output_path}")
     print(f"Output plot        : {plot_path}")
     print("-" * 60)
