@@ -6,11 +6,9 @@ from pathlib import Path
 import numpy as np
 
 
-DEFAULT_MATCHES_FILE = Path("/home/hello/pml/mycalib/stereo_calib/result/panoramic_01_matches.json")
-DEFAULT_CAMERA_FILE = Path("/home/hello/pml/mycalib/blender-file/stereo_panoramic_01/camera_params.json")
-DEFAULT_POSES_FILE = Path("/home/hello/pml/mycalib/blender-file/stereo_panoramic_01/camera_poses_summary.json")
-DEFAULT_OUTPUT_FILE = Path("/home/hello/pml/mycalib/match_point_test/panoramic_01_matches_gtpose_dsym_le_2px.json")
-DEFAULT_STATS_FILE = Path("/home/hello/pml/mycalib/match_point_test/panoramic_01_matches_gtpose_dsym_le_2px.stats.json")
+DEFAULT_MATCHES_DIR = Path("/home/hello/pml/mycalib/stereo_calib/result/match_points")
+DEFAULT_BLENDER_DIR = Path("/home/hello/pml/mycalib/blender-file")
+DEFAULT_OUTPUT_DIR = DEFAULT_MATCHES_DIR
 EPS = 1e-12
 
 
@@ -22,11 +20,10 @@ def read_json(path: Path) -> dict:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Filter matches using pair-specific GT fundamental matrices")
-    parser.add_argument("--matches_file", default=str(DEFAULT_MATCHES_FILE), help="Input matches JSON")
-    parser.add_argument("--camera_file", default=str(DEFAULT_CAMERA_FILE), help="Shared camera intrinsics JSON")
-    parser.add_argument("--poses_file", default=str(DEFAULT_POSES_FILE), help="Pose summary JSON")
-    parser.add_argument("--output_file", default=str(DEFAULT_OUTPUT_FILE), help="Filtered output matches JSON")
-    parser.add_argument("--stats_json", default=str(DEFAULT_STATS_FILE), help="Output stats JSON")
+    parser.add_argument("--matches_dir", default=str(DEFAULT_MATCHES_DIR), help="Directory containing input matches JSON files")
+    parser.add_argument("--blender_dir", default=str(DEFAULT_BLENDER_DIR), help="Directory containing stereo_panoramic_xx camera files")
+    parser.add_argument("--output_dir", default=str(DEFAULT_OUTPUT_DIR), help="Directory for filtered matches JSON files")
+    parser.add_argument("--stats_dir", default=None, help="Directory for stats JSON files (default: output_dir)")
     parser.add_argument("--threshold", type=float, default=2.0, help="Keep matches with d_sym <= threshold")
     parser.add_argument("--metric", choices=["dsym"], default="dsym", help="Filtering metric")
     parser.add_argument("--dry_run", action="store_true", help="Only compute and print stats")
@@ -271,8 +268,9 @@ def build_stats(original_pairs: list[dict], filtered_pairs: list[dict], pair_sta
 
 
 
-def print_summary(stats: dict):
+def print_summary(stats: dict, label: str):
     print("-" * 72)
+    print(f"Dataset                     : {label}")
     print(f"Metric / threshold          : {stats['filter']['metric']} <= {stats['filter']['threshold']}")
     print(f"Total matches               : {stats['global']['original_match_count']} -> {stats['global']['kept_match_count']} ({stats['global']['retention_ratio']:.3f})")
     print(f"Pairs with >=50 matches     : {stats['pair_threshold_counts']['before']['50']} -> {stats['pair_threshold_counts']['after']['50']}")
@@ -293,13 +291,36 @@ def print_summary(stats: dict):
 
 
 
-def main():
-    args = parse_args()
-    matches_path = Path(args.matches_file)
-    camera_path = Path(args.camera_file)
-    poses_path = Path(args.poses_file)
-    output_path = Path(args.output_file)
-    stats_path = Path(args.stats_json)
+def infer_dataset_name(matches_path: Path) -> str:
+    name = matches_path.stem
+    suffix = "_matches"
+    if not name.endswith(suffix):
+        raise ValueError(f"Unexpected matches filename: {matches_path.name}")
+    return name
+
+
+
+def infer_dataset_id(dataset_name: str) -> str:
+    suffix = "_matches"
+    if not dataset_name.endswith(suffix):
+        raise ValueError(f"Unexpected dataset name: {dataset_name}")
+    return dataset_name[len("panoramic_"):-len(suffix)]
+
+
+
+def format_threshold_suffix(threshold: float) -> str:
+    return format(threshold, "g")
+
+
+
+def filter_single_file(matches_path: Path, blender_dir: Path, output_dir: Path, stats_dir: Path, threshold: float, dry_run: bool):
+    dataset_name = infer_dataset_name(matches_path)
+    dataset_id = infer_dataset_id(dataset_name)
+    camera_path = blender_dir / f"stereo_panoramic_{dataset_id}" / "camera_params.json"
+    poses_path = blender_dir / f"stereo_panoramic_{dataset_id}" / "camera_poses_summary.json"
+    threshold_suffix = format_threshold_suffix(threshold)
+    output_path = output_dir / f"{dataset_name}_gtpose_dsym_le_{threshold_suffix}px.json"
+    stats_path = stats_dir / f"{dataset_name}_gtpose_dsym_le_{threshold_suffix}px.stats.json"
 
     matches_data = read_json(matches_path)
     camera_data = read_json(camera_path)
@@ -315,18 +336,18 @@ def main():
 
     for pair in original_pairs:
         F21, _, _ = pair_specific_f(pair, pose_lookup, K_left, K_right)
-        filtered_pair, stats_row = filter_pair(pair, F21, args.threshold)
+        filtered_pair, stats_row = filter_pair(pair, F21, threshold)
         filtered_pairs.append(filtered_pair)
         pair_stats.append(stats_row)
 
-    stats = build_stats(original_pairs, filtered_pairs, pair_stats, args.threshold)
-    print_summary(stats)
+    stats = build_stats(original_pairs, filtered_pairs, pair_stats, threshold)
+    print_summary(stats, dataset_name)
 
     stats_path.parent.mkdir(parents=True, exist_ok=True)
     with open(stats_path, "w", encoding="utf-8") as f:
         json.dump(json_safe(stats), f, indent=2)
 
-    if args.dry_run:
+    if dry_run:
         print(f"Dry run only. Stats JSON: {stats_path}")
         return
 
@@ -343,6 +364,25 @@ def main():
 
     print(f"Output matches JSON         : {output_path}")
     print(f"Output stats JSON           : {stats_path}")
+
+
+
+def main():
+    args = parse_args()
+    matches_dir = Path(args.matches_dir)
+    blender_dir = Path(args.blender_dir)
+    output_dir = Path(args.output_dir)
+    stats_dir = Path(args.stats_dir) if args.stats_dir else output_dir
+
+    matches_files = sorted(
+        path for path in matches_dir.glob("panoramic_*_matches.json")
+        if "_gtpose_dsym_le_" not in path.name
+    )
+    if not matches_files:
+        raise FileNotFoundError(f"No original matches JSON files found in {matches_dir}")
+
+    for matches_path in matches_files:
+        filter_single_file(matches_path, blender_dir, output_dir, stats_dir, args.threshold, args.dry_run)
 
 
 if __name__ == "__main__":
