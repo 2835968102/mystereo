@@ -42,9 +42,9 @@ def resolve_paths(scene: str):
     return dict(
         img_dir        = img_dir,
         result_dir     = result_dir,
-        match_json     = result_dir / "match_points" / f"{scene}_matches_gtpose_dsym_le_1px.json",
+        match_json     = result_dir / "match_points" / f"{scene}_matches_gtpose_dsym_le_1.5px.json",
         ba_result_json = result_dir / "ba_results" / f"{scene}_ba_result.json",
-        plot_png       = result_dir / f"{scene}_ba_history_gtpose_dsym_le_1px.png",
+        plot_png       = result_dir / f"{scene}_ba_history_gtpose_dsym_le_1.5px.png",
         gt_file        = img_dir   / "camera_params_0000.json",
         tmp_cam_params = img_dir   / "camera_params.json",
         weights        = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth",
