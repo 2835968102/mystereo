@@ -1,6 +1,8 @@
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -11,6 +13,118 @@
 
 using json = nlohmann::json;
 using namespace stereocalib;
+
+namespace {
+
+double JsonAbsOrNaN(const json& obj, const char* key)
+{
+  if (!obj.contains(key) || !obj.at(key).is_number()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return std::abs(obj.at(key).get<double>());
+}
+
+double JsonIndexAbsOrNaN(const json& arr, std::size_t index)
+{
+  if (!arr.is_array() || index >= arr.size() || !arr.at(index).is_number()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return std::abs(arr.at(index).get<double>());
+}
+
+void AddIfFinite(double value, double& sum, int& count)
+{
+  if (std::isfinite(value)) {
+    sum += value;
+    ++count;
+  }
+}
+
+json MeanOrNull(double sum, int count)
+{
+  if (count == 0) {
+    return nullptr;
+  }
+  return sum / static_cast<double>(count);
+}
+
+json BuildSummaryFromHistory(const json& history)
+{
+  double reproj_sum = 0.0;
+  int reproj_count = 0;
+  double rotation_sum = 0.0;
+  int rotation_count = 0;
+  double left_fx_sum = 0.0;
+  int left_fx_count = 0;
+  double left_fy_sum = 0.0;
+  int left_fy_count = 0;
+  double right_fx_sum = 0.0;
+  int right_fx_count = 0;
+  double right_fy_sum = 0.0;
+  int right_fy_count = 0;
+  double baseline_sum = 0.0;
+  int baseline_count = 0;
+  double tx_sum = 0.0;
+  int tx_count = 0;
+  double ty_sum = 0.0;
+  int ty_count = 0;
+  double tz_sum = 0.0;
+  int tz_count = 0;
+  double focal_sum = 0.0;
+  int focal_count = 0;
+
+  if (!history.is_array()) {
+    return json::object();
+  }
+
+  for (const auto& item : history) {
+    AddIfFinite(item.value("reproj_error", std::numeric_limits<double>::quiet_NaN()), reproj_sum, reproj_count);
+
+    const json& diff_vs_gt = item.contains("diff_vs_gt") ? item.at("diff_vs_gt") : json::object();
+    const json& extrinsics = diff_vs_gt.contains("extrinsics") ? diff_vs_gt.at("extrinsics") : json::object();
+    const json& left = diff_vs_gt.contains("left") ? diff_vs_gt.at("left") : json::object();
+    const json& right = diff_vs_gt.contains("right") ? diff_vs_gt.at("right") : json::object();
+
+    AddIfFinite(JsonAbsOrNaN(extrinsics, "rotation_error_deg"), rotation_sum, rotation_count);
+    AddIfFinite(JsonAbsOrNaN(extrinsics, "baseline"), baseline_sum, baseline_count);
+
+    const json& t = extrinsics.contains("t") ? extrinsics.at("t") : json::array();
+    AddIfFinite(JsonIndexAbsOrNaN(t, 0), tx_sum, tx_count);
+    AddIfFinite(JsonIndexAbsOrNaN(t, 1), ty_sum, ty_count);
+    AddIfFinite(JsonIndexAbsOrNaN(t, 2), tz_sum, tz_count);
+
+    const double left_fx = JsonAbsOrNaN(left, "fx");
+    const double left_fy = JsonAbsOrNaN(left, "fy");
+    const double right_fx = JsonAbsOrNaN(right, "fx");
+    const double right_fy = JsonAbsOrNaN(right, "fy");
+
+    AddIfFinite(left_fx, left_fx_sum, left_fx_count);
+    AddIfFinite(left_fy, left_fy_sum, left_fy_count);
+    AddIfFinite(right_fx, right_fx_sum, right_fx_count);
+    AddIfFinite(right_fy, right_fy_sum, right_fy_count);
+
+    AddIfFinite(left_fx, focal_sum, focal_count);
+    AddIfFinite(left_fy, focal_sum, focal_count);
+    AddIfFinite(right_fx, focal_sum, focal_count);
+    AddIfFinite(right_fy, focal_sum, focal_count);
+  }
+
+  return {
+      {"avg_reproj_error_px", MeanOrNull(reproj_sum, reproj_count)},
+      {"avg_rotation_error_deg", MeanOrNull(rotation_sum, rotation_count)},
+      {"avg_left_fx_error_px", MeanOrNull(left_fx_sum, left_fx_count)},
+      {"avg_left_fy_error_px", MeanOrNull(left_fy_sum, left_fy_count)},
+      {"avg_right_fx_error_px", MeanOrNull(right_fx_sum, right_fx_count)},
+      {"avg_right_fy_error_px", MeanOrNull(right_fy_sum, right_fy_count)},
+      {"avg_baseline_error_m", MeanOrNull(baseline_sum, baseline_count)},
+      {"avg_trans_err_x_m", MeanOrNull(tx_sum, tx_count)},
+      {"avg_trans_err_y_m", MeanOrNull(ty_sum, ty_count)},
+      {"avg_trans_err_z_m", MeanOrNull(tz_sum, tz_count)},
+      {"avg_focal_error_px", MeanOrNull(focal_sum, focal_count)},
+  };
+}
+
+}  // namespace
 
 int main(int argc, char** argv)
 {
@@ -242,6 +356,7 @@ int main(int argc, char** argv)
   out["final_reproj_error"] = result.final_reproj_error;
 
   out["optimization_history"] = result.optimization_history;
+  out["summary"] = BuildSummaryFromHistory(result.optimization_history);
 
   if (has_gt) {
     out["gt_source"] = gt_source;

@@ -17,6 +17,7 @@ plot_ba_history.py — 绘制 BA 优化历史的所有参数误差曲线
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -110,8 +111,42 @@ def short_label(stage: str) -> str:
     return f"F{frame}"
 
 
+def finite_mean(values):
+    valid = [float(v) for v in values if isinstance(v, (int, float)) and math.isfinite(v)]
+    if not valid:
+        return None
+    return float(np.mean(valid))
+
+
+def format_mean(label: str, value, unit: str) -> str:
+    if value is None or not math.isfinite(value):
+        return f"{label}: N/A"
+    suffix = f" {unit}" if unit else ""
+    return f"{label}: {value:.6f}{suffix}"
+
+
+def build_summary(data: dict, series: dict) -> dict:
+    summary = data.get("summary") or {}
+    return {
+        "avg_reproj_error_px": summary.get("avg_reproj_error_px", finite_mean(series["reproj"])),
+        "avg_rotation_error_deg": summary.get("avg_rotation_error_deg", finite_mean(series["rot_err_deg"])),
+        "avg_left_fx_error_px": summary.get("avg_left_fx_error_px", finite_mean(series["left_fx_err"])),
+        "avg_left_fy_error_px": summary.get("avg_left_fy_error_px", finite_mean(series["left_fy_err"])),
+        "avg_right_fx_error_px": summary.get("avg_right_fx_error_px", finite_mean(series["right_fx_err"])),
+        "avg_right_fy_error_px": summary.get("avg_right_fy_error_px", finite_mean(series["right_fy_err"])),
+        "avg_baseline_error_m": summary.get("avg_baseline_error_m", finite_mean(series["baseline_err"])),
+        "avg_trans_err_x_m": summary.get("avg_trans_err_x_m", finite_mean(series["trans_err_x"])),
+        "avg_trans_err_y_m": summary.get("avg_trans_err_y_m", finite_mean(series["trans_err_y"])),
+        "avg_trans_err_z_m": summary.get("avg_trans_err_z_m", finite_mean(series["trans_err_z"])),
+        "avg_focal_error_px": summary.get(
+            "avg_focal_error_px",
+            finite_mean(series["left_fx_err"] + series["left_fy_err"] + series["right_fx_err"] + series["right_fy_err"]),
+        ),
+    }
+
+
 def _draw_panel(ax, idx, values, global_mask, ylabel, unit="",
-                color=COLOR_LINE, extra_lines=None):
+                color=COLOR_LINE, extra_lines=None, mean_lines=None):
     """
     在单个子图中绘制一条（或多条）折线，并标注全局 BA。
 
@@ -150,15 +185,26 @@ def _draw_panel(ax, idx, values, global_mask, ylabel, unit="",
     ax.set_ylabel(full_ylabel, fontsize=8.5)
     ax.tick_params(axis="both", labelsize=7.5)
 
+    if mean_lines:
+        ax.text(
+            0.02, 0.98, "\n".join(mean_lines),
+            transform=ax.transAxes,
+            fontsize=7.5,
+            va="top",
+            ha="left",
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.85, edgecolor="#cccccc"),
+        )
+
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
 
 
 def plot_all(series, data, output_path):
-    stages      = series["stages"]
-    idx         = series["idx"]
+    stages = series["stages"]
+    idx = series["idx"]
     global_mask = series["global_mask"]
-    n           = len(stages)
+    n = len(stages)
+    summary = build_summary(data, series)
 
     xlabels = [short_label(s) for s in stages]
 
@@ -174,24 +220,57 @@ def plot_all(series, data, output_path):
         fontsize=14, fontweight="bold", y=0.995,
     )
 
-    # ── 子图定义：(ax, values, ylabel, unit, extra_lines) ────────────
+    summary_lines = [
+        format_mean("Mean reproj", summary["avg_reproj_error_px"], "px"),
+        format_mean("Mean focal", summary["avg_focal_error_px"], "px"),
+        format_mean("Mean left fx", summary["avg_left_fx_error_px"], "px"),
+        format_mean("Mean left fy", summary["avg_left_fy_error_px"], "px"),
+        format_mean("Mean right fx", summary["avg_right_fx_error_px"], "px"),
+        format_mean("Mean right fy", summary["avg_right_fy_error_px"], "px"),
+        format_mean("Mean rotation", summary["avg_rotation_error_deg"], "deg"),
+        format_mean("Mean baseline", summary["avg_baseline_error_m"], "m"),
+        format_mean("Mean |Δtx|", summary["avg_trans_err_x_m"], "m"),
+        format_mean("Mean |Δty|", summary["avg_trans_err_y_m"], "m"),
+        format_mean("Mean |Δtz|", summary["avg_trans_err_z_m"], "m"),
+    ]
+    fig.text(
+        0.985, 0.93, "\n".join(summary_lines),
+        fontsize=8,
+        va="top",
+        ha="right",
+        bbox=dict(boxstyle="round,pad=0.35", facecolor="white", alpha=0.9, edgecolor="#cccccc"),
+    )
+
+    # ── 子图定义：(ax, values, ylabel, unit, extra_lines, mean_lines) ─────────
     panels = [
-        (axes[0, 0], series["reproj"],       "Reprojection Error",  "px",  None),
-        (axes[0, 1], series["rot_err_deg"],   "Rotation Error",      "deg", None),
-        (axes[1, 0], series["left_fx_err"],   "Left  |Δfx|",         "px",  None),
-        (axes[1, 1], series["left_fy_err"],   "Left  |Δfy|",         "px",  None),
-        (axes[2, 0], series["right_fx_err"],  "Right |Δfx|",         "px",  None),
-        (axes[2, 1], series["right_fy_err"],  "Right |Δfy|",         "px",  None),
-        (axes[3, 0], series["baseline_err"],  "Baseline |Δt_x|",     "m",   None),
-        (axes[3, 1], series["trans_err_x"],   "Translation Error",   "m",
+        (axes[0, 0], series["reproj"], "Reprojection Error", "px", None,
+         [format_mean("mean", summary["avg_reproj_error_px"], "px")]),
+        (axes[0, 1], series["rot_err_deg"], "Rotation Error", "deg", None,
+         [format_mean("mean", summary["avg_rotation_error_deg"], "deg")]),
+        (axes[1, 0], series["left_fx_err"], "Left  |Δfx|", "px", None,
+         [format_mean("mean", summary["avg_left_fx_error_px"], "px")]),
+        (axes[1, 1], series["left_fy_err"], "Left  |Δfy|", "px", None,
+         [format_mean("mean", summary["avg_left_fy_error_px"], "px")]),
+        (axes[2, 0], series["right_fx_err"], "Right |Δfx|", "px", None,
+         [format_mean("mean", summary["avg_right_fx_error_px"], "px")]),
+        (axes[2, 1], series["right_fy_err"], "Right |Δfy|", "px", None,
+         [format_mean("mean", summary["avg_right_fy_error_px"], "px")]),
+        (axes[3, 0], series["baseline_err"], "Baseline |Δt_x|", "m", None,
+         [format_mean("mean", summary["avg_baseline_error_m"], "m")]),
+        (axes[3, 1], series["trans_err_x"], "Translation Error", "m",
          [
              (series["trans_err_y"], "|Δty|", "#2ca02c"),
              (series["trans_err_z"], "|Δtz|", "#ff7f0e"),
+         ],
+         [
+             format_mean("|Δtx| mean", summary["avg_trans_err_x_m"], "m"),
+             format_mean("|Δty| mean", summary["avg_trans_err_y_m"], "m"),
+             format_mean("|Δtz| mean", summary["avg_trans_err_z_m"], "m"),
          ]),
     ]
 
-    for ax, vals, ylabel, unit, extra in panels:
-        _draw_panel(ax, idx, vals, global_mask, ylabel, unit, extra_lines=extra)
+    for ax, vals, ylabel, unit, extra, mean_lines in panels:
+        _draw_panel(ax, idx, vals, global_mask, ylabel, unit, extra_lines=extra, mean_lines=mean_lines)
 
     # ── 共享 x 轴刻度 ─────────────────────────────────────────────────
     for row in axes:
