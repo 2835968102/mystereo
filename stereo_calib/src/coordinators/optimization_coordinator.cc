@@ -193,66 +193,24 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
       eval_service_->RecordOptimizationStage(stage_name, ba_result.final_rmse, current);
     }
 
-    // Periodic global BA
-    if (config.global_opt_interval > 0 &&
-        successful_registrations % config.global_opt_interval == 0) {
-      BAResult global_result = ba_service_->RunBundleAdjustment(
-          state, active_frames, ToBAConfig(config, config.max_iter));
-      
-      if (global_result.success) {
-        if (!have_rmse) {
-          result.init_reproj_error = global_result.init_rmse;
-          have_rmse = true;
-        }
-        result.final_reproj_error = global_result.final_rmse;
-
-        std::cout << "[Global BA] registered_frames=" << (i + 1)
-                  << "/" << reg_order.size()
-                  << ", reproj_rmse=" << std::fixed << std::setprecision(4)
-                  << global_result.final_rmse << " px" << std::endl;
-
-        std::string stage_name = "Periodic Global BA - Frame " + std::to_string(i + 1);
-        StereoCamera current = BuildCamera(state);
-        eval_service_->PrintCurrentVsGroundTruth(stage_name, current);
-        eval_service_->RecordOptimizationStage(stage_name, global_result.final_rmse, current);
-      }
-    }
+    // Periodic global BA disabled temporarily.
   }
 
-  // ── Step 7: Final global BA ───────────────────────────────────────────────
-  std::fill(active_frames.begin(), active_frames.end(), 1);
-  BAResult final_ba = ba_service_->RunBundleAdjustment(
-      state, active_frames, ToBAConfig(config, config.max_iter));
-  
-  if (!final_ba.success) {
-    std::cerr << "Final global BA failed." << std::endl;
-    return result;
-  }
-
-  result.init_reproj_error = final_ba.init_rmse;
-  result.final_reproj_error = final_ba.final_rmse;
-
-  std::cout << final_ba.summary.BriefReport() << std::endl;
-  std::cout << "Tracks=" << result.num_tracks 
-            << ", observations=" << result.num_observations 
-            << ", frames=" << result.num_frames << std::endl;
-  std::cout << "Reprojection error: init=" << std::fixed << std::setprecision(4) 
-            << result.init_reproj_error
-            << " px, final=" << result.final_reproj_error << " px" << std::endl;
-
+  // ── Step 7: Finalization without global BA ────────────────────────────────
   StereoCamera final_camera = BuildCamera(state);
-  eval_service_->PrintCurrentVsGroundTruth("Final Global BA", final_camera);
-  eval_service_->RecordOptimizationStage("Final Global BA", result.final_reproj_error, final_camera);
 
-  // ── Step 8: Check convergence ─────────────────────────────────────────────
-  const bool converged = (final_ba.summary.termination_type == ceres::CONVERGENCE ||
-                          final_ba.summary.termination_type == ceres::NO_CONVERGENCE);
-  const bool pass_reproj = (result.final_reproj_error <= config.max_reproj_error);
+  std::cout << "Global BA disabled. Using incremental BA result." << std::endl;
+  std::cout << "Tracks=" << result.num_tracks
+            << ", observations=" << result.num_observations
+            << ", frames=" << result.num_frames << std::endl;
+  std::cout << "Reprojection error: final=" << std::fixed << std::setprecision(4)
+            << result.final_reproj_error << " px" << std::endl;
 
-  if (!converged) {
-    std::cerr << "Offline BA did not converge." << std::endl;
+  const bool pass_reproj = have_rmse && (result.final_reproj_error <= config.max_reproj_error);
+  if (!have_rmse) {
+    std::cerr << "No incremental BA result available." << std::endl;
   }
-  if (!pass_reproj) {
+  if (have_rmse && !pass_reproj) {
     std::cerr << "Final reprojection error " << result.final_reproj_error
               << " px exceeds threshold " << config.max_reproj_error << " px." << std::endl;
   }
@@ -260,7 +218,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   // ── Finalize result ───────────────────────────────────────────────────────
   result.camera = final_camera;
   result.optimization_history = eval_service_->GetOptimizationHistory();
-  result.success = converged && pass_reproj;
+  result.success = pass_reproj;
 
   return result;
 }
