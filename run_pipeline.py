@@ -35,16 +35,16 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def resolve_paths(scene: str):
-    """根据场景名生成所有相关路径。"""
+def resolve_paths(scene: str, pixel_tag: str):
+    """根据场景名和像素阈值标签生成所有相关路径。"""
     img_dir        = PROJECT_ROOT / f"blender-file/stereo_{scene}"
     result_dir     = PROJECT_ROOT / "stereo_calib/result"
     return dict(
         img_dir        = img_dir,
         result_dir     = result_dir,
-        match_json     = result_dir / "match_points" / f"{scene}_matches_gtpose_dsym_le_3px.json",
-        ba_result_json = result_dir / "ba_results" / f"{scene}_ba_result.json",
-        plot_png       = result_dir / f"{scene}_ba_history_gtpose_dsym_le_3px.png",
+        match_json     = result_dir / "match_points" / f"{scene}_matches_gtpose_dsym_le_{pixel_tag}.json",
+        ba_result_json = result_dir / "ba_results" / f"{scene}_ba_result_le_{pixel_tag}.json",
+        plot_png       = result_dir / f"{scene}_ba_history_gtpose_dsym_le_{pixel_tag}.png",
         gt_file        = img_dir   / "camera_params_0000.json",
         tmp_cam_params = img_dir   / "camera_params.json",
         weights        = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth",
@@ -112,6 +112,8 @@ def parse_args():
     # 场景选择
     p.add_argument("--scene", default="panoramic_01",
                    help="场景名称，对应 blender-file/stereo_{scene} 目录（如 panoramic_02）")
+    p.add_argument("--pixel_tag", default="3px",
+                   help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
 
     # 流程控制
     flow = p.add_argument_group("流程控制")
@@ -159,7 +161,7 @@ def parse_args():
 
 def main():
     args  = parse_args()
-    paths = resolve_paths(args.scene)
+    paths = resolve_paths(args.scene, args.pixel_tag)
 
     # 前置检查
     missing = []

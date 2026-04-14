@@ -31,6 +31,13 @@ MAX_SCORE=0.5
 MIN_TRACK_LEN=3
 SKIP_MATCH="--skip_match"
 
+# 定义要批量运行的像素阈值标签
+PIXEL_TAGS=(
+    "3px"
+    "2px"
+    "1px"
+)
+
 # 定义场景数组
 SCENES_1=(
     "panoramic_01"
@@ -39,7 +46,6 @@ SCENES_1=(
     "panoramic_04"
     "panoramic_05"
 )
-
 
 # 编译步骤
 echo "开始编译..."
@@ -50,22 +56,29 @@ cd "$CURRENT_DIR" || { echo "返回工作目录失败"; exit 1; }
 echo "编译完成！"
 
 # 循环执行
-for SCENE in "${SCENES_1[@]}"; do
-    echo "正在处理场景: $SCENE"
-    SCENE_START_TIME=$(date +%s)
+for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
+    echo "========================================"
+    echo "开始测试阈值: 小于${PIXEL_TAG}"
+    echo "========================================"
 
-    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
-        --scene "$SCENE" \
-        --max_iter "$MAX_ITER" \
-        --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
-        --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
-        --min_pair_inliers "$MIN_PAIR_INLIERS" \
-        --max_score "$MAX_SCORE" \
-        $FIX_DISTORTION \
-        --min_track_len "$MIN_TRACK_LEN" \
-        $SKIP_MATCH
+    for SCENE in "${SCENES_1[@]}"; do
+        echo "正在处理场景: $SCENE (小于${PIXEL_TAG})"
+        SCENE_START_TIME=$(date +%s)
 
-    SCENE_END_TIME=$(date +%s)
-    SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
-    printf "场景 %s 运行时间: %s\n" "$SCENE" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
+        conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
+            --scene "$SCENE" \
+            --pixel_tag "$PIXEL_TAG" \
+            --max_iter "$MAX_ITER" \
+            --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
+            --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
+            --min_pair_inliers "$MIN_PAIR_INLIERS" \
+            --max_score "$MAX_SCORE" \
+            $FIX_DISTORTION \
+            --min_track_len "$MIN_TRACK_LEN" \
+            $SKIP_MATCH
+
+        SCENE_END_TIME=$(date +%s)
+        SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
+        printf "场景 %s (小于%s) 运行时间: %s\n" "$SCENE" "$PIXEL_TAG" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
+    done
 done
