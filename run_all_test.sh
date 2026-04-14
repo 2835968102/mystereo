@@ -56,12 +56,12 @@ cd "$CURRENT_DIR" || { echo "返回工作目录失败"; exit 1; }
 echo "编译完成！"
 
 # 循环执行
-for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
+for SCENE in "${SCENES_1[@]}"; do
     echo "========================================"
-    echo "开始测试阈值: 小于${PIXEL_TAG}"
+    echo "开始处理场景: $SCENE"
     echo "========================================"
 
-    for SCENE in "${SCENES_1[@]}"; do
+    for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
         echo "正在处理场景: $SCENE (小于${PIXEL_TAG})"
         SCENE_START_TIME=$(date +%s)
 
@@ -81,4 +81,11 @@ for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
         SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
         printf "场景 %s (小于%s) 运行时间: %s\n" "$SCENE" "$PIXEL_TAG" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
     done
+
+    conda run --no-capture-output -n stereo-calib-vis python stereo_calib/scripts/plot_ba_threshold_comparison.py \
+        --scene "$SCENE" \
+        --input-3px "stereo_calib/result/ba_results/${SCENE}_ba_result_le_3px.json" \
+        --input-2px "stereo_calib/result/ba_results/${SCENE}_ba_result_le_2px.json" \
+        --input-1px "stereo_calib/result/ba_results/${SCENE}_ba_result_le_1px.json" \
+        --output "stereo_calib/result/${SCENE}_ba_threshold_comparison.png"
 done
