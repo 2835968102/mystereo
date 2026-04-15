@@ -250,11 +250,11 @@ def load_gray_float(path: str) -> np.ndarray:
 def parse_args():
     p = argparse.ArgumentParser(description='SuperPoint stereo matching')
     p.add_argument('--dataset_mode', choices=['project', 'kitti2015'], default='project',
-                   help='Dataset mode: project uses one directory with left_*/right_* images; kitti2015 uses KITTI training root with image_2/image_3')
+                   help='Dataset mode: project uses one directory with left_*/right_* images; kitti2015 uses KITTI RAW drive root with image_00/data and image_01/data')
     p.add_argument('--img_dir', required=True,
-                   help='Project image directory or KITTI training root directory')
+                   help='Project image directory or KITTI RAW drive root directory')
     p.add_argument('--scene', default=None,
-                   help='Scene name in project mode or KITTI scene id such as 000000 in kitti2015 mode')
+                   help='Scene name in project mode or KITTI frame id such as 0000000000 in kitti2015 mode')
     p.add_argument('--weights', required=True,
                    help='Path to superpoint_v1.pth')
     p.add_argument('--output', default='superpoint_matches.json',
@@ -306,32 +306,29 @@ def _find_kitti_image(base_dir: Path, stem: str) -> Path | None:
 
 
 def build_kitti_image_records(kitti_root: str, scene: str):
-    """Return the 4 normalized image records for one KITTI Stereo 2015 scene."""
+    """Return the normalized stereo image records for one KITTI RAW frame."""
     if not scene:
-        raise ValueError('kitti2015 模式需要提供 --scene，例如 000000')
+        raise ValueError('kitti2015 模式需要提供 --scene，例如 0000000000')
 
     root = Path(kitti_root)
-    image_2 = root / 'image_2'
-    image_3 = root / 'image_3'
+    image_00 = root / 'image_00' / 'data'
+    image_01 = root / 'image_01' / 'data'
     specs = [
-        ('10', image_2, True),
-        ('10', image_3, False),
-        ('11', image_2, True),
-        ('11', image_3, False),
+        (image_00, True),
+        (image_01, False),
     ]
 
     records = []
     missing = []
-    for suffix, base_dir, is_left in specs:
-        stem = f'{scene}_{suffix}'
-        image_path = _find_kitti_image(base_dir, stem)
+    for base_dir, is_left in specs:
+        image_path = _find_kitti_image(base_dir, scene)
         if image_path is None:
-            missing.append(str(base_dir / f'{stem}.*'))
+            missing.append(str(base_dir / f'{scene}.*'))
             continue
         records.append({
             'path': str(image_path),
-            'image_name': f'{base_dir.name}/{image_path.name}',
-            'frame_id': stem,
+            'image_name': f'{base_dir.parent.name}/{image_path.name}',
+            'frame_id': scene,
             'is_left': is_left,
         })
 

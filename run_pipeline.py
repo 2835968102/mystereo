@@ -69,50 +69,50 @@ def projection_to_intrinsics(P: list[float]) -> dict:
     }
 
 
-def build_kitti_gt_camera_json(scene: str, kitti_root_dir: Path, result_dir: Path) -> Path:
-    calib_root = kitti_root_dir.parent.parent / "data_scene_flow_calib" / kitti_root_dir.name / "calib_cam_to_cam"
-    calib_file = calib_root / f"{scene}.txt"
+def build_kitti_gt_camera_json(kitti_calib_dir: Path, result_dir: Path, result_prefix: str) -> Path:
+    calib_file = kitti_calib_dir / "calib_cam_to_cam.txt"
     if not calib_file.exists():
         raise FileNotFoundError(f"KITTI 标定文件不存在：{calib_file}")
 
     calib = parse_kitti_calib_file(calib_file)
-    required_keys = ["P_rect_02", "P_rect_03"]
+    required_keys = ["P_rect_00", "P_rect_01"]
     missing_keys = [key for key in required_keys if key not in calib or len(calib[key]) != 12]
     if missing_keys:
         raise ValueError(f"KITTI 标定文件缺少必要字段：{', '.join(missing_keys)} ({calib_file})")
 
-    p2 = calib["P_rect_02"]
-    p3 = calib["P_rect_03"]
+    p0 = calib["P_rect_00"]
+    p1 = calib["P_rect_01"]
 
-    fx2 = p2[0]
-    fy2 = p2[5]
-    fx3 = p3[0]
-    fy3 = p3[5]
+    fx0 = p0[0]
+    fy0 = p0[5]
+    fx1 = p1[0]
+    fy1 = p1[5]
 
     gt_camera = {
-        "left": projection_to_intrinsics(p2),
-        "right": projection_to_intrinsics(p3),
+        "left": projection_to_intrinsics(p0),
+        "right": projection_to_intrinsics(p1),
         "extrinsics": {
             "R": [1.0, 0.0, 0.0,
                   0.0, 1.0, 0.0,
                   0.0, 0.0, 1.0],
             "t": [
-                p3[3] / fx3 - p2[3] / fx2,
-                p3[7] / fy3 - p2[7] / fy2,
-                p3[11] - p2[11],
+                p1[3] / fx1 - p0[3] / fx0,
+                p1[7] / fy1 - p0[7] / fy0,
+                p1[11] - p0[11],
             ],
         },
     }
 
     gt_dir = result_dir / "gt_params"
     gt_dir.mkdir(parents=True, exist_ok=True)
-    gt_file = gt_dir / f"kitti2015_{scene}_gt_camera.json"
+    gt_file = gt_dir / f"{result_prefix}_gt_camera.json"
     with open(gt_file, "w", encoding="utf-8") as f:
         json.dump(gt_camera, f, indent=2)
     return gt_file
 
 
-def resolve_paths(scene: str, pixel_tag: str, dataset_mode: str, kitti_root_dir: str | None):
+def resolve_paths(scene: str, pixel_tag: str, dataset_mode: str, kitti_root_dir: str | None,
+                  match_json: str | None, result_prefix: str | None):
     """根据数据集模式、场景名和像素阈值标签生成相关路径。"""
     result_dir = PROJECT_ROOT / "stereo_calib/result"
 
@@ -121,27 +121,35 @@ def resolve_paths(scene: str, pixel_tag: str, dataset_mode: str, kitti_root_dir:
         img_dir = PROJECT_ROOT / f"blender-file/stereo_{scene}"
         gt_file = img_dir / "camera_params_0000.json"
         matcher_input_dir = img_dir
+        match_json_path = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
+        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
+        plot_png = result_dir / f"{result_prefix}_ba_history_gtpose_dsym_le_{pixel_tag}.png"
     elif dataset_mode == "kitti2015":
         result_prefix = f"{dataset_mode}_{scene}"
         if not kitti_root_dir:
             raise ValueError("KITTI 模式需要提供 --kitti_root_dir")
         img_dir = Path(kitti_root_dir)
-        gt_file = build_kitti_gt_camera_json(scene, img_dir, result_dir)
+        kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
+        gt_file = build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
         matcher_input_dir = img_dir
-    else:
-        raise ValueError(f"不支持的数据集模式: {dataset_mode}")
-
-    if dataset_mode == "project":
-        match_json = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
-    else:
-        match_json = result_dir / "match_points" / f"{result_prefix}_matches.json"
-
-    if dataset_mode == "project":
-        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
-        plot_png = result_dir / f"{result_prefix}_ba_history_gtpose_dsym_le_{pixel_tag}.png"
-    else:
+        match_json_path = result_dir / "match_points" / f"{result_prefix}_matches.json"
         ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
         plot_png = result_dir / f"{result_prefix}_ba_history.png"
+    elif dataset_mode == "kitti_raw_aggregate":
+        if not kitti_root_dir:
+            raise ValueError("KITTI RAW aggregate 模式需要提供 --kitti_root_dir")
+        if not match_json:
+            raise ValueError("KITTI RAW aggregate 模式需要提供 --match_json")
+        result_prefix = result_prefix or "kitti_raw_00_01"
+        img_dir = Path(kitti_root_dir)
+        kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
+        gt_file = build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        matcher_input_dir = None
+        match_json_path = Path(match_json)
+        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
+        plot_png = result_dir / f"{result_prefix}_ba_history.png"
+    else:
+        raise ValueError(f"不支持的数据集模式: {dataset_mode}")
 
     return dict(
         dataset_mode   = dataset_mode,
@@ -149,7 +157,7 @@ def resolve_paths(scene: str, pixel_tag: str, dataset_mode: str, kitti_root_dir:
         img_dir        = img_dir,
         matcher_input_dir = matcher_input_dir,
         result_dir     = result_dir,
-        match_json     = match_json,
+        match_json     = match_json_path,
         ba_result_json = ba_result_json,
         plot_png       = plot_png,
         gt_file        = gt_file,
@@ -183,12 +191,16 @@ def parse_args():
     )
 
     # 场景选择
-    p.add_argument("--dataset_mode", choices=["project", "kitti2015"], default="project",
-                   help="数据集模式：project 使用 blender-file/stereo_{scene}；kitti2015 使用 KITTI Stereo 2015 training 目录")
+    p.add_argument("--dataset_mode", choices=["project", "kitti2015", "kitti_raw_aggregate"], default="project",
+                   help="数据集模式：project 使用 blender-file/stereo_{scene}；kitti2015 使用 KITTI RAW 单帧；kitti_raw_aggregate 直接消费汇总 matches JSON")
     p.add_argument("--scene", default="panoramic_01",
-                   help="project 模式下为场景名（如 panoramic_02）；kitti2015 模式下为 scene id（如 000000）")
+                   help="project 模式下为场景名（如 panoramic_02）；kitti2015 模式下为帧号（如 0000000000）")
     p.add_argument("--kitti_root_dir", default=None,
-                   help="KITTI Stereo 2015 training 根目录，需包含 image_2/ 和 image_3/")
+                   help="KITTI RAW drive 根目录，需包含 image_00/data 和 image_01/data")
+    p.add_argument("--match_json", default=None,
+                   help="已有 matches JSON 路径（供 kitti_raw_aggregate 等模式复用）")
+    p.add_argument("--result_prefix", default=None,
+                   help="输出结果文件名前缀（供聚合模式使用）")
     p.add_argument("--pixel_tag", default="3px",
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
 
@@ -239,7 +251,8 @@ def parse_args():
 def main():
     args = parse_args()
     try:
-        paths = resolve_paths(args.scene, args.pixel_tag, args.dataset_mode, args.kitti_root_dir)
+        paths = resolve_paths(args.scene, args.pixel_tag, args.dataset_mode, args.kitti_root_dir,
+                              args.match_json, args.result_prefix)
     except (ValueError, FileNotFoundError) as exc:
         sys.exit(str(exc))
 
@@ -247,8 +260,8 @@ def main():
     missing = []
     if not paths["img_dir"].exists():
         missing.append(f"图像目录：{paths['img_dir']}")
-    if args.dataset_mode == "kitti2015":
-        for subdir in ("image_2", "image_3"):
+    if args.dataset_mode in ("kitti2015", "kitti_raw_aggregate"):
+        for subdir in ("image_00/data", "image_01/data"):
             subdir_path = paths["img_dir"] / subdir
             if not subdir_path.exists():
                 missing.append(f"KITTI 子目录：{subdir_path}")
@@ -265,6 +278,9 @@ def main():
 
     # ── 步骤 1：SuperPoint 特征匹配 ───────────────────────────────────────────
     if not args.skip_match:
+        if args.dataset_mode == "kitti_raw_aggregate":
+            sys.exit("kitti_raw_aggregate 模式请提供 --match_json 并使用 --skip_match")
+
         log_step(f"步骤 1/3：SuperPoint 特征匹配（数据集：{args.dataset_mode}，场景：{args.scene}）")
 
         cmd = [

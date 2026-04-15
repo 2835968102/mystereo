@@ -47,12 +47,14 @@ PROJECT_SCENES=(
     "panoramic_05"
 )
 
-# 定义 KITTI 场景数组（新增）
+# 定义 KITTI RAW 帧数组
 KITTI_SCENES=(
-    "000000"
-    "000001"
+    "0000000000"
+    "0000000001"
 )
-KITTI_ROOT_DIR="/home/hello/pml/data/KITTI/Stereo/Stereo2015/data_scene_flow/training"
+KITTI_ROOT_DIR="/home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_sync/2011_09_26/2011_09_26_drive_0001_sync"
+KITTI_AGGREGATE_MATCH_JSON="stereo_calib/result/match_points/kitti_raw_00_01_matches.json"
+KITTI_AGGREGATE_RESULT_PREFIX="kitti_raw_00_01"
 
 result_prefix_for_mode() {
     local dataset_mode=$1
@@ -139,6 +141,32 @@ run_kitti_scene() {
     printf "场景 %s (dataset_mode=kitti2015) 运行时间: %s\n" "$scene" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
 }
 
+run_kitti_raw_aggregate() {
+    echo "========================================"
+    echo "开始处理 KITTI RAW aggregate (dataset_mode=kitti_raw_aggregate)"
+    echo "========================================"
+    SCENE_START_TIME=$(date +%s)
+
+    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
+        --dataset_mode kitti_raw_aggregate \
+        --kitti_root_dir "$KITTI_ROOT_DIR" \
+        --match_json "$KITTI_AGGREGATE_MATCH_JSON" \
+        --result_prefix "$KITTI_AGGREGATE_RESULT_PREFIX" \
+        --max_iter "$MAX_ITER" \
+        --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
+        --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
+        --min_pair_inliers "$MIN_PAIR_INLIERS" \
+        --max_score "$MAX_SCORE" \
+        $FIX_DISTORTION \
+        --min_track_len "$MIN_TRACK_LEN" \
+        --no_plot \
+        --skip_match
+
+    SCENE_END_TIME=$(date +%s)
+    SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
+    printf "KITTI RAW aggregate 运行时间: %s\n" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
+}
+
 # 编译步骤
 echo "开始编译..."
 mkdir -p "$CURRENT_DIR/build" || { echo "创建build目录失败"; exit 1; }
@@ -153,10 +181,8 @@ for SCENE in "${PROJECT_SCENES[@]}"; do
     run_project_threshold_sweep "$SCENE"
 done
 
-# 再跑新增 KITTI 场景
-for SCENE in "${KITTI_SCENES[@]}"; do
-    run_kitti_scene "$SCENE"
-done
+# 跑 KITTI RAW aggregate 总匹配文件
+run_kitti_raw_aggregate
 
 : <<'LEGACY_PROJECT_LOOP_REMOVED'
 for SCENE in "${SCENES_1[@]}"; do
