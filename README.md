@@ -89,14 +89,31 @@ cmake ../stereo_calib && make -j$(nproc)
 ```bash
 conda activate stereo-calib-vis
 
-# 完整流程（默认场景 panoramic_01）
+# 完整流程（默认 project 数据集的 panoramic_01）
 python run_pipeline.py
 
-# 指定其他场景
-python run_pipeline.py --scene panoramic_02
+# 指定 project 数据集其他场景
+python run_pipeline.py --dataset_mode project --scene panoramic_02
+
+# 运行 KITTI Stereo 2015 training 的单个 scene（方案 B：使用 _10 和 _11 两帧，并自动与官方标定值对比）
+python run_pipeline.py \
+    --dataset_mode kitti2015 \
+    --scene 000000 \
+    --kitti_root_dir /path/to/data_scene_flow/training
+
+# 说明：除 image_2/image_3 外，还需要存在 sibling 标定目录
+# /path/to/data_scene_flow_calib/training/calib_cam_to_cam/000000.txt
+# 程序会自动转换为仓库内部 GT JSON，并通过 --gt_param_file 接入 BA 对比
 
 # 使用 CUDA 加速特征匹配
 python run_pipeline.py --cuda
+
+# 在 KITTI 模式下使用 CUDA
+python run_pipeline.py \
+    --dataset_mode kitti2015 \
+    --scene 000000 \
+    --kitti_root_dir /path/to/data_scene_flow/training \
+    --cuda
 
 # 跳过特征匹配，直接跑 BA（复用已有 matches JSON）
 python run_pipeline.py --skip_match
@@ -119,16 +136,31 @@ python run_pipeline.py \
 
 ### 路径约定
 
-`run_pipeline.py` 根据 `--scene` 参数自动生成以下路径：
+`run_pipeline.py` 会根据 `--dataset_mode` 和 `--scene` 自动生成输入/输出路径。
+
+#### project 模式
 
 | 路径 | 说明 |
 |------|------|
 | `blender-file/stereo_{scene}/` | 输入图像目录 |
 | `blender-file/stereo_{scene}/camera_params_0000.json` | GT 参数（可选，有则自动对比） |
 | `matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth` | SuperPoint 权重 |
-| `stereo_calib/result/{scene}_matches.json` | 匹配结果输出 |
-| `stereo_calib/result/{scene}_ba_result.json` | BA 结果输出 |
-| `stereo_calib/result/{scene}_ba_history.png` | 优化历史图输出 |
+| `stereo_calib/result/match_points/{scene}_matches_gtpose_dsym_le_{pixel_tag}.json` | 匹配结果输出 |
+| `stereo_calib/result/ba_results/{scene}_ba_result_le_{pixel_tag}.json` | BA 结果输出 |
+| `stereo_calib/result/{scene}_ba_history_gtpose_dsym_le_{pixel_tag}.png` | 优化历史图输出 |
+
+#### kitti2015 模式
+
+| 路径 | 说明 |
+|------|------|
+| `{kitti_root_dir}/image_2/{scene}_10.png` | 第 1 帧左目 |
+| `{kitti_root_dir}/image_3/{scene}_10.png` | 第 1 帧右目 |
+| `{kitti_root_dir}/image_2/{scene}_11.png` | 第 2 帧左目 |
+| `{kitti_root_dir}/image_3/{scene}_11.png` | 第 2 帧右目 |
+| `stereo_calib/result/match_points/kitti2015_{scene}_matches.json` | 匹配结果输出 |
+| `stereo_calib/result/gt_params/kitti2015_{scene}_gt_camera.json` | 自动生成的 KITTI GT 相机参数 |
+| `stereo_calib/result/ba_results/kitti2015_{scene}_ba_result.json` | BA 结果输出（含 `gt_source` / `diff_vs_gt`） |
+| `stereo_calib/result/kitti2015_{scene}_ba_history.png` | 优化历史图输出 |
 
 ---
 
@@ -138,7 +170,9 @@ python run_pipeline.py \
 
 | 参数 | 说明 |
 |------|------|
-| `--scene` | 场景名称，对应 `blender-file/stereo_{scene}` 目录（默认 `panoramic_01`） |
+| `--dataset_mode` | 数据集模式：`project` 或 `kitti2015` |
+| `--scene` | `project` 模式下为场景名称；`kitti2015` 模式下为 scene id（如 `000000`） |
+| `--kitti_root_dir` | KITTI Stereo 2015 training 根目录，需包含 `image_2/` 和 `image_3/` |
 | `--skip_match` | 跳过特征匹配，复用已有 matches JSON |
 | `--skip_ba` | 跳过 BA 优化，复用已有 BA 结果 JSON |
 | `--no_plot` | 跳过可视化步骤 |
@@ -177,9 +211,21 @@ python run_pipeline.py \
 conda activate stereo-calib-vis
 
 python stereo_calib/scripts/superpoint_stereo_match.py \
+    --dataset_mode project \
     --img_dir blender-file/stereo_panoramic_01 \
+    --scene panoramic_01 \
     --weights matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth \
     --output stereo_calib/result/panoramic_01_matches.json \
+    --nn_thresh 0.7 \
+    --conf_thresh 0.015
+
+# KITTI Stereo 2015 training 单个 scene（方案 B）
+python stereo_calib/scripts/superpoint_stereo_match.py \
+    --dataset_mode kitti2015 \
+    --img_dir /path/to/data_scene_flow/training \
+    --scene 000000 \
+    --weights matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth \
+    --output stereo_calib/result/kitti2015_000000_matches.json \
     --nn_thresh 0.7 \
     --conf_thresh 0.015
 ```

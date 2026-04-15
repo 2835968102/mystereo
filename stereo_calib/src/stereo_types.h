@@ -112,6 +112,12 @@ struct RawPairMatch {
 struct RawImagePair {
   std::string image_a;
   std::string image_b;
+  std::string image_a_frame_id;
+  std::string image_b_frame_id;
+  bool image_a_is_left = false;
+  bool image_b_is_left = false;
+  bool has_image_a_meta = false;
+  bool has_image_b_meta = false;
   std::vector<RawPairMatch> matches;
 };
 

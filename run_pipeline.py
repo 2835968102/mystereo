@@ -27,7 +27,6 @@
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,20 +34,127 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def resolve_paths(scene: str, pixel_tag: str):
-    """根据场景名和像素阈值标签生成所有相关路径。"""
-    img_dir        = PROJECT_ROOT / f"blender-file/stereo_{scene}"
-    result_dir     = PROJECT_ROOT / "stereo_calib/result"
+def parse_kitti_calib_file(calib_file: Path) -> dict[str, list[float] | str]:
+    calib = {}
+    with open(calib_file, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            if not value:
+                calib[key] = []
+                continue
+            parts = value.split()
+            try:
+                calib[key] = [float(v) for v in parts]
+            except ValueError:
+                calib[key] = value
+    return calib
+
+
+def projection_to_intrinsics(P: list[float]) -> dict:
+    return {
+        "fx": P[0],
+        "fy": P[5],
+        "cx": P[2],
+        "cy": P[6],
+        "k1": 0.0,
+        "k2": 0.0,
+        "p1": 0.0,
+        "p2": 0.0,
+        "k3": 0.0,
+    }
+
+
+def build_kitti_gt_camera_json(scene: str, kitti_root_dir: Path, result_dir: Path) -> Path:
+    calib_root = kitti_root_dir.parent.parent / "data_scene_flow_calib" / kitti_root_dir.name / "calib_cam_to_cam"
+    calib_file = calib_root / f"{scene}.txt"
+    if not calib_file.exists():
+        raise FileNotFoundError(f"KITTI 标定文件不存在：{calib_file}")
+
+    calib = parse_kitti_calib_file(calib_file)
+    required_keys = ["P_rect_02", "P_rect_03"]
+    missing_keys = [key for key in required_keys if key not in calib or len(calib[key]) != 12]
+    if missing_keys:
+        raise ValueError(f"KITTI 标定文件缺少必要字段：{', '.join(missing_keys)} ({calib_file})")
+
+    p2 = calib["P_rect_02"]
+    p3 = calib["P_rect_03"]
+
+    fx2 = p2[0]
+    fy2 = p2[5]
+    fx3 = p3[0]
+    fy3 = p3[5]
+
+    gt_camera = {
+        "left": projection_to_intrinsics(p2),
+        "right": projection_to_intrinsics(p3),
+        "extrinsics": {
+            "R": [1.0, 0.0, 0.0,
+                  0.0, 1.0, 0.0,
+                  0.0, 0.0, 1.0],
+            "t": [
+                p3[3] / fx3 - p2[3] / fx2,
+                p3[7] / fy3 - p2[7] / fy2,
+                p3[11] - p2[11],
+            ],
+        },
+    }
+
+    gt_dir = result_dir / "gt_params"
+    gt_dir.mkdir(parents=True, exist_ok=True)
+    gt_file = gt_dir / f"kitti2015_{scene}_gt_camera.json"
+    with open(gt_file, "w", encoding="utf-8") as f:
+        json.dump(gt_camera, f, indent=2)
+    return gt_file
+
+
+def resolve_paths(scene: str, pixel_tag: str, dataset_mode: str, kitti_root_dir: str | None):
+    """根据数据集模式、场景名和像素阈值标签生成相关路径。"""
+    result_dir = PROJECT_ROOT / "stereo_calib/result"
+
+    if dataset_mode == "project":
+        result_prefix = scene
+        img_dir = PROJECT_ROOT / f"blender-file/stereo_{scene}"
+        gt_file = img_dir / "camera_params_0000.json"
+        matcher_input_dir = img_dir
+    elif dataset_mode == "kitti2015":
+        result_prefix = f"{dataset_mode}_{scene}"
+        if not kitti_root_dir:
+            raise ValueError("KITTI 模式需要提供 --kitti_root_dir")
+        img_dir = Path(kitti_root_dir)
+        gt_file = build_kitti_gt_camera_json(scene, img_dir, result_dir)
+        matcher_input_dir = img_dir
+    else:
+        raise ValueError(f"不支持的数据集模式: {dataset_mode}")
+
+    if dataset_mode == "project":
+        match_json = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
+    else:
+        match_json = result_dir / "match_points" / f"{result_prefix}_matches.json"
+
+    if dataset_mode == "project":
+        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
+        plot_png = result_dir / f"{result_prefix}_ba_history_gtpose_dsym_le_{pixel_tag}.png"
+    else:
+        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
+        plot_png = result_dir / f"{result_prefix}_ba_history.png"
+
     return dict(
+        dataset_mode   = dataset_mode,
+        scene          = scene,
         img_dir        = img_dir,
+        matcher_input_dir = matcher_input_dir,
         result_dir     = result_dir,
-        match_json     = result_dir / "match_points" / f"{scene}_matches_gtpose_dsym_le_{pixel_tag}.json",
-        ba_result_json = result_dir / "ba_results" / f"{scene}_ba_result_le_{pixel_tag}.json",
-        plot_png       = result_dir / f"{scene}_ba_history_gtpose_dsym_le_{pixel_tag}.png",
-        gt_file        = img_dir   / "camera_params_0000.json",
-        tmp_cam_params = img_dir   / "camera_params.json",
+        match_json     = match_json,
+        ba_result_json = ba_result_json,
+        plot_png       = plot_png,
+        gt_file        = gt_file,
         weights        = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth",
-        ba_bin         = PROJECT_ROOT / "stereo_calib/build/bin/run_offline_stereo_ba",
+        ba_bin         = PROJECT_ROOT / "build/bin/run_offline_stereo_ba",
         match_script   = PROJECT_ROOT / "stereo_calib/scripts/superpoint_stereo_match.py",
         plot_script    = PROJECT_ROOT / "stereo_calib/scripts/plot_ba_history.py",
     )
@@ -68,39 +174,6 @@ def run_cmd(cmd: list, cwd: Path = PROJECT_ROOT) -> None:
         sys.exit(f"\n命令执行失败（exit code {ret.returncode}）")
 
 
-def create_tmp_camera_params(paths: dict) -> bool:
-    """
-    从逐帧参数文件提取 left/right/extrinsics 写入临时 camera_params.json。
-    superpoint_stereo_match.py 会读取该文件，将 GT 嵌入 matches.json 供 C++ BA 对比。
-    返回 True 表示新建了文件（需要在完成后清理）。
-    """
-    tmp = paths["tmp_cam_params"]
-    gt  = paths["gt_file"]
-
-    if tmp.exists():
-        print(f"  camera_params.json 已存在，跳过创建。")
-        return False
-
-    if not gt.exists():
-        print(f"  警告：GT 文件不存在 {gt}，跳过嵌入 GT。")
-        return False
-
-    with open(gt) as f:
-        raw = json.load(f)
-
-    cam = {
-        "image_size": raw.get("image_size", {}),
-        "left":       raw["left"],
-        "right":      raw["right"],
-        "extrinsics": raw["extrinsics"],
-    }
-    with open(tmp, "w") as f:
-        json.dump(cam, f, indent=2)
-
-    print(f"  已创建临时文件：{tmp}")
-    return True
-
-
 # ── 参数解析 ──────────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -110,8 +183,12 @@ def parse_args():
     )
 
     # 场景选择
+    p.add_argument("--dataset_mode", choices=["project", "kitti2015"], default="project",
+                   help="数据集模式：project 使用 blender-file/stereo_{scene}；kitti2015 使用 KITTI Stereo 2015 training 目录")
     p.add_argument("--scene", default="panoramic_01",
-                   help="场景名称，对应 blender-file/stereo_{scene} 目录（如 panoramic_02）")
+                   help="project 模式下为场景名（如 panoramic_02）；kitti2015 模式下为 scene id（如 000000）")
+    p.add_argument("--kitti_root_dir", default=None,
+                   help="KITTI Stereo 2015 training 根目录，需包含 image_2/ 和 image_3/")
     p.add_argument("--pixel_tag", default="3px",
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
 
@@ -160,13 +237,21 @@ def parse_args():
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 
 def main():
-    args  = parse_args()
-    paths = resolve_paths(args.scene, args.pixel_tag)
+    args = parse_args()
+    try:
+        paths = resolve_paths(args.scene, args.pixel_tag, args.dataset_mode, args.kitti_root_dir)
+    except (ValueError, FileNotFoundError) as exc:
+        sys.exit(str(exc))
 
     # 前置检查
     missing = []
     if not paths["img_dir"].exists():
         missing.append(f"图像目录：{paths['img_dir']}")
+    if args.dataset_mode == "kitti2015":
+        for subdir in ("image_2", "image_3"):
+            subdir_path = paths["img_dir"] / subdir
+            if not subdir_path.exists():
+                missing.append(f"KITTI 子目录：{subdir_path}")
     if not args.skip_match and not paths["weights"].exists():
         missing.append(f"SuperPoint 权重：{paths['weights']}")
     if not args.skip_ba and not paths["ba_bin"].exists():
@@ -175,23 +260,23 @@ def main():
         sys.exit("错误，以下文件/目录不存在：\n  " + "\n  ".join(missing))
 
     paths["result_dir"].mkdir(parents=True, exist_ok=True)
-
-    created_tmp = False
+    paths["match_json"].parent.mkdir(parents=True, exist_ok=True)
+    paths["ba_result_json"].parent.mkdir(parents=True, exist_ok=True)
 
     # ── 步骤 1：SuperPoint 特征匹配 ───────────────────────────────────────────
     if not args.skip_match:
-        log_step(f"步骤 1/3：SuperPoint 特征匹配（场景：{args.scene}）")
-
-        created_tmp = create_tmp_camera_params(paths)
+        log_step(f"步骤 1/3：SuperPoint 特征匹配（数据集：{args.dataset_mode}，场景：{args.scene}）")
 
         cmd = [
             sys.executable, str(paths["match_script"]),
-            "--img_dir",    str(paths["img_dir"]),
-            "--weights",    str(paths["weights"]),
-            "--output",     str(paths["match_json"]),
-            "--nn_thresh",  str(args.nn_thresh),
+            "--dataset_mode", args.dataset_mode,
+            "--img_dir", str(paths["matcher_input_dir"]),
+            "--scene", args.scene,
+            "--weights", str(paths["weights"]),
+            "--output", str(paths["match_json"]),
+            "--nn_thresh", str(args.nn_thresh),
             "--conf_thresh", str(args.conf_thresh),
-            "--nms_dist",   str(args.nms_dist),
+            "--nms_dist", str(args.nms_dist),
         ]
         if args.cuda:
             cmd.append("--cuda")
@@ -205,23 +290,23 @@ def main():
 
     # ── 步骤 2：增量式 Bundle Adjustment ─────────────────────────────────────
     if not args.skip_ba:
-        log_step(f"步骤 2/3：增量式 Bundle Adjustment 优化（场景：{args.scene}）")
+        log_step(f"步骤 2/3：增量式 Bundle Adjustment 优化（数据集：{args.dataset_mode}，场景：{args.scene}）")
 
         cmd = [
             str(paths["ba_bin"]),
-            "--input",                str(paths["match_json"]),
-            "--output",               str(paths["ba_result_json"]),
-            "--max_iter",             str(args.max_iter),
+            "--input", str(paths["match_json"]),
+            "--output", str(paths["ba_result_json"]),
+            "--max_iter", str(args.max_iter),
             "--incremental_max_iter", str(args.incremental_max_iter),
-            "--global_opt_interval",  str(args.global_opt_interval),
-            "--huber",                str(args.huber),
-            "--min_track_len",        str(args.min_track_len),
-            "--min_pair_inliers",     str(args.min_pair_inliers),
-            "--max_score",            str(args.max_score),
+            "--global_opt_interval", str(args.global_opt_interval),
+            "--huber", str(args.huber),
+            "--min_track_len", str(args.min_track_len),
+            "--min_pair_inliers", str(args.min_pair_inliers),
+            "--max_score", str(args.max_score),
         ]
         if args.fix_distortion:
             cmd.append("--fix_distortion")
-        if paths["gt_file"].exists():
+        if paths["gt_file"] is not None and paths["gt_file"].exists():
             cmd += ["--gt_param_file", str(paths["gt_file"])]
 
         run_cmd(cmd, cwd=PROJECT_ROOT)
@@ -233,23 +318,19 @@ def main():
 
     # ── 步骤 3：可视化 ────────────────────────────────────────────────────────
     if not args.no_plot:
-        log_step(f"步骤 3/3：BA 优化历史可视化（场景：{args.scene}）")
+        log_step(f"步骤 3/3：BA 优化历史可视化（数据集：{args.dataset_mode}，场景：{args.scene}）")
 
         cmd = [
             sys.executable, str(paths["plot_script"]),
-            "--input",  str(paths["ba_result_json"]),
+            "--input", str(paths["ba_result_json"]),
             "--output", str(paths["plot_png"]),
         ]
         run_cmd(cmd)
         print(f"\n可视化图片已保存：{paths['plot_png']}")
 
-    # ── 清理临时文件 ──────────────────────────────────────────────────────────
-    if created_tmp and paths["tmp_cam_params"].exists():
-        paths["tmp_cam_params"].unlink()
-        print(f"\n已清理临时文件：{paths['tmp_cam_params']}")
-
     # ── 汇总 ─────────────────────────────────────────────────────────────────
     log_step("全流程完成")
+    print(f"  数据集模式：{args.dataset_mode}")
     print(f"  场景：{args.scene}")
     print(f"  特征匹配结果：{paths['match_json']}")
     print(f"  BA 优化结果：{paths['ba_result_json']}")

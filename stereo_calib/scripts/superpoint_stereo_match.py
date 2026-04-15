@@ -22,6 +22,7 @@ import itertools
 import json
 import os
 import sys
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -248,51 +249,103 @@ def load_gray_float(path: str) -> np.ndarray:
 
 def parse_args():
     p = argparse.ArgumentParser(description='SuperPoint stereo matching')
-    p.add_argument('--img_dir',    required=True,
-                   help='Directory with left_NNN.* / right_NNN.* images')
-    p.add_argument('--weights',    required=True,
+    p.add_argument('--dataset_mode', choices=['project', 'kitti2015'], default='project',
+                   help='Dataset mode: project uses one directory with left_*/right_* images; kitti2015 uses KITTI training root with image_2/image_3')
+    p.add_argument('--img_dir', required=True,
+                   help='Project image directory or KITTI training root directory')
+    p.add_argument('--scene', default=None,
+                   help='Scene name in project mode or KITTI scene id such as 000000 in kitti2015 mode')
+    p.add_argument('--weights', required=True,
                    help='Path to superpoint_v1.pth')
-    p.add_argument('--output',     default='superpoint_matches.json',
+    p.add_argument('--output', default='superpoint_matches.json',
                    help='Output JSON path (default: superpoint_matches.json)')
-    p.add_argument('--nn_thresh',   type=float, default=0.7,
+    p.add_argument('--nn_thresh', type=float, default=0.7,
                    help='Descriptor L2 distance threshold (default: 0.7)')
     p.add_argument('--conf_thresh', type=float, default=0.015,
                    help='Keypoint confidence threshold (default: 0.015)')
-    p.add_argument('--nms_dist',    type=int,   default=4,
+    p.add_argument('--nms_dist', type=int, default=4,
                    help='NMS suppression radius in pixels (default: 4)')
-    p.add_argument('--cuda',        action='store_true',
+    p.add_argument('--cuda', action='store_true',
                    help='Use CUDA if available')
     return p.parse_args()
 
 
-def find_all_images(img_dir: str):
-    """Return sorted list of all image file paths in img_dir."""
-    exts = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
-    images = []
+IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
+
+
+def build_project_image_records(img_dir: str):
+    """Return normalized image records for the existing project dataset."""
+    records = []
     for f in sorted(os.listdir(img_dir)):
-        if os.path.splitext(f)[1].lower() in exts:
-            images.append(os.path.join(img_dir, f))
-    return images
+        stem, ext = os.path.splitext(f)
+        if ext.lower() not in IMAGE_EXTS:
+            continue
+        if stem.startswith('left_'):
+            frame_id = stem[len('left_'):]
+            is_left = True
+        elif stem.startswith('right_'):
+            frame_id = stem[len('right_'):]
+            is_left = False
+        else:
+            continue
+        records.append({
+            'path': os.path.join(img_dir, f),
+            'image_name': f,
+            'frame_id': frame_id,
+            'is_left': is_left,
+        })
+    return records
 
 
-def find_stereo_pairs(img_dir: str):
-    """Return sorted list of (left_path, right_path, stem) tuples."""
-    exts = ('.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.tif')
-    left_files = {}
-    for f in os.listdir(img_dir):
-        name, ext = os.path.splitext(f)
-        if ext.lower() in exts and name.startswith('left_'):
-            stem = name[len('left_'):]
-            left_files[stem] = os.path.join(img_dir, f)
+def _find_kitti_image(base_dir: Path, stem: str) -> Path | None:
+    for ext in IMAGE_EXTS:
+        path = base_dir / f'{stem}{ext}'
+        if path.is_file():
+            return path
+    return None
 
-    pairs = []
-    for stem, lpath in sorted(left_files.items()):
-        for ext in exts:
-            rpath = os.path.join(img_dir, f'right_{stem}{ext}')
-            if os.path.isfile(rpath):
-                pairs.append((lpath, rpath, stem))
-                break
-    return pairs
+
+def build_kitti_image_records(kitti_root: str, scene: str):
+    """Return the 4 normalized image records for one KITTI Stereo 2015 scene."""
+    if not scene:
+        raise ValueError('kitti2015 模式需要提供 --scene，例如 000000')
+
+    root = Path(kitti_root)
+    image_2 = root / 'image_2'
+    image_3 = root / 'image_3'
+    specs = [
+        ('10', image_2, True),
+        ('10', image_3, False),
+        ('11', image_2, True),
+        ('11', image_3, False),
+    ]
+
+    records = []
+    missing = []
+    for suffix, base_dir, is_left in specs:
+        stem = f'{scene}_{suffix}'
+        image_path = _find_kitti_image(base_dir, stem)
+        if image_path is None:
+            missing.append(str(base_dir / f'{stem}.*'))
+            continue
+        records.append({
+            'path': str(image_path),
+            'image_name': f'{base_dir.name}/{image_path.name}',
+            'frame_id': stem,
+            'is_left': is_left,
+        })
+
+    if missing:
+        raise FileNotFoundError('Missing KITTI scene images:\n  ' + '\n  '.join(missing))
+    return records
+
+
+def build_image_records(dataset_mode: str, img_dir: str, scene: str | None):
+    if dataset_mode == 'project':
+        return build_project_image_records(img_dir)
+    if dataset_mode == 'kitti2015':
+        return build_kitti_image_records(img_dir, scene)
+    raise ValueError(f'Unsupported dataset_mode: {dataset_mode}')
 
 
 def main():
@@ -311,20 +364,24 @@ def main():
         cuda=use_cuda,
     )
 
-    images = find_all_images(args.img_dir)
-    if len(images) < 2:
-        sys.exit(f'Need at least 2 images in: {args.img_dir}')
-    n_pairs = len(images) * (len(images) - 1) // 2
-    print(f'Found {len(images)} image(s), {n_pairs} pair(s) to match.')
+    try:
+        image_records = build_image_records(args.dataset_mode, args.img_dir, args.scene)
+    except (ValueError, FileNotFoundError) as exc:
+        sys.exit(str(exc))
 
-    # Load optional camera params
+    if len(image_records) < 2:
+        sys.exit(f'Need at least 2 images in dataset selection: {args.img_dir}')
+    n_pairs = len(image_records) * (len(image_records) - 1) // 2
+    print(f'Found {len(image_records)} image(s), {n_pairs} pair(s) to match.')
+
+    # Load optional camera params only for project dataset layout.
     cam_json = os.path.join(args.img_dir, 'camera_params.json')
-    if os.path.isfile(cam_json):
+    if args.dataset_mode == 'project' and os.path.isfile(cam_json):
         with open(cam_json) as f:
             cam = json.load(f)
         result = {
-            'left':       cam.get('left', {}),
-            'right':      cam.get('right', {}),
+            'left': cam.get('left', {}),
+            'right': cam.get('right', {}),
             'extrinsics': cam.get('extrinsics', {}),
         }
         print(f'Loaded camera parameters from: {cam_json}')
@@ -335,41 +392,46 @@ def main():
 
     # Cache descriptors to avoid recomputing per image
     cache = {}
+
     def get_feats(path):
         if path not in cache:
             cache[path] = fe.run(load_gray_float(path))
         return cache[path]
 
     total_matches = 0
-    for lpath, rpath in itertools.combinations(images, 2):
-        lname = os.path.basename(lpath)
-        rname = os.path.basename(rpath)
-        print(f'  {lname} <-> {rname} ...', end=' ', flush=True)
+    for rec_a, rec_b in itertools.combinations(image_records, 2):
+        print(f"  {rec_a['image_name']} <-> {rec_b['image_name']} ...", end=' ', flush=True)
 
-        pts_l, desc_l = get_feats(lpath)
-        pts_r, desc_r = get_feats(rpath)
+        pts_a, desc_a = get_feats(rec_a['path'])
+        pts_b, desc_b = get_feats(rec_b['path'])
 
-        matches = nn_match_two_way(desc_l, desc_r, args.nn_thresh)
+        matches = nn_match_two_way(desc_a, desc_b, args.nn_thresh)
         n_matches = matches.shape[1]
         total_matches += n_matches
-        print(f'kpts L={pts_l.shape[1]}  R={pts_r.shape[1]}  matches={n_matches}')
+        print(f'kpts A={pts_a.shape[1]}  B={pts_b.shape[1]}  matches={n_matches}')
 
         match_list = []
         for k in range(n_matches):
             score = float(matches[2, k])
             i, j = int(matches[0, k]), int(matches[1, k])
             match_list.append({
-                'left':  [round(float(pts_l[0, i]), 2),
-                           round(float(pts_l[1, i]), 2)],
-                'right': [round(float(pts_r[0, j]), 2),
-                           round(float(pts_r[1, j]), 2)],
+                'left': [round(float(pts_a[0, i]), 2),
+                         round(float(pts_a[1, i]), 2)],
+                'right': [round(float(pts_b[0, j]), 2),
+                          round(float(pts_b[1, j]), 2)],
                 'score': round(score, 4),
             })
 
         result['pairs'].append({
-            'left_image':  lname,
-            'right_image': rname,
-            'num_keypoints': {'left': int(pts_l.shape[1]), 'right': int(pts_r.shape[1])},
+            'left_image': rec_a['image_name'],
+            'right_image': rec_b['image_name'],
+            'image_a': rec_a['image_name'],
+            'image_b': rec_b['image_name'],
+            'image_a_frame_id': rec_a['frame_id'],
+            'image_b_frame_id': rec_b['frame_id'],
+            'image_a_is_left': rec_a['is_left'],
+            'image_b_is_left': rec_b['is_left'],
+            'num_keypoints': {'left': int(pts_a.shape[1]), 'right': int(pts_b.shape[1])},
             'num_matches': n_matches,
             'matches': match_list,
         })

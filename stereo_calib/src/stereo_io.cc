@@ -104,6 +104,18 @@ std::vector<RawImagePair> RawPairsFromJson(const nlohmann::json& j)
     RawImagePair pair;
     pair.image_a = image_a;
     pair.image_b = image_b;
+    if (jp.contains("image_a_frame_id") && jp.at("image_a_frame_id").is_string() &&
+        jp.contains("image_a_is_left") && jp.at("image_a_is_left").is_boolean()) {
+      pair.image_a_frame_id = jp.at("image_a_frame_id").get<std::string>();
+      pair.image_a_is_left = jp.at("image_a_is_left").get<bool>();
+      pair.has_image_a_meta = true;
+    }
+    if (jp.contains("image_b_frame_id") && jp.at("image_b_frame_id").is_string() &&
+        jp.contains("image_b_is_left") && jp.at("image_b_is_left").is_boolean()) {
+      pair.image_b_frame_id = jp.at("image_b_frame_id").get<std::string>();
+      pair.image_b_is_left = jp.at("image_b_is_left").get<bool>();
+      pair.has_image_b_meta = true;
+    }
 
     if (jp.contains("matches") && jp.at("matches").is_array()) {
       const nlohmann::json& jm_list = jp.at("matches");

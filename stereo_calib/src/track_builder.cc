@@ -158,7 +158,10 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
 
   std::unordered_map<std::string, int> image_index;
 
-  auto ensure_image = [&](const std::string& name) {
+  auto ensure_image = [&](const std::string& name,
+                          bool has_meta,
+                          bool meta_is_left,
+                          const std::string& meta_frame_id) {
     std::unordered_map<std::string, int>::const_iterator it = image_index.find(name);
     if (it != image_index.end()) {
       return it->second;
@@ -168,11 +171,17 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
 
     ImageInfo info;
     info.name = name;
-    bool is_left = true;
-    std::string frame_id;
-    info.valid = ParseImageName(name, is_left, frame_id);
-    info.is_left = is_left;
-    info.frame_id = frame_id;
+    if (has_meta && !meta_frame_id.empty()) {
+      info.valid = true;
+      info.is_left = meta_is_left;
+      info.frame_id = meta_frame_id;
+    } else {
+      bool is_left = true;
+      std::string frame_id;
+      info.valid = ParseImageName(name, is_left, frame_id);
+      info.is_left = is_left;
+      info.frame_id = frame_id;
+    }
     images.push_back(info);
     return idx;
   };
@@ -210,8 +219,10 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
       continue;
     }
 
-    const int ia = ensure_image(pair.image_a);
-    const int ib = ensure_image(pair.image_b);
+    const int ia = ensure_image(pair.image_a, pair.has_image_a_meta,
+                                pair.image_a_is_left, pair.image_a_frame_id);
+    const int ib = ensure_image(pair.image_b, pair.has_image_b_meta,
+                                pair.image_b_is_left, pair.image_b_frame_id);
 
     std::vector<char> inlier_mask(pair.matches.size(), 1);
 
