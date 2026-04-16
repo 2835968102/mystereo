@@ -38,8 +38,8 @@ PIXEL_TAGS=(
     "1px"
 )
 
-# 定义 project 场景数组（保留原有批量运行）
-PROJECT_SCENES=(
+# 定义场景数组
+SCENES_1=(
     "panoramic_01"
     "panoramic_02"
     "panoramic_03"
@@ -47,148 +47,37 @@ PROJECT_SCENES=(
     "panoramic_05"
 )
 
-# 定义 KITTI RAW 帧数组
-KITTI_SCENES=(
-    "0000000000"
-    "0000000001"
-)
-KITTI_ROOT_DIR="/home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_sync/2011_09_26/2011_09_26_drive_0001_sync"
-KITTI_AGGREGATE_MATCH_JSON="stereo_calib/result/match_points/kitti_raw_00_01_matches.json"
-KITTI_AGGREGATE_RESULT_PREFIX="kitti_raw_00_01"
-
-result_prefix_for_mode() {
-    local dataset_mode=$1
-    local scene=$2
-    if [ "$dataset_mode" = "project" ]; then
-        printf "%s" "$scene"
-    else
-        printf "%s_%s" "$dataset_mode" "$scene"
-    fi
-}
-
-run_project_threshold_sweep() {
-    local scene=$1
-    local result_prefix
-    result_prefix=$(result_prefix_for_mode "project" "$scene")
-
-    echo "========================================"
-    echo "开始处理场景: $scene (dataset_mode=project)"
-    echo "========================================"
-
-    for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
-        echo "正在处理场景: $scene (dataset_mode=project, 小于${PIXEL_TAG})"
-        SCENE_START_TIME=$(date +%s)
-
-        conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
-            --dataset_mode project \
-            --scene "$scene" \
-            --pixel_tag "$PIXEL_TAG" \
-            --max_iter "$MAX_ITER" \
-            --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
-            --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
-            --min_pair_inliers "$MIN_PAIR_INLIERS" \
-            --max_score "$MAX_SCORE" \
-            $FIX_DISTORTION \
-            --min_track_len "$MIN_TRACK_LEN" \
-            $SKIP_MATCH
-
-        SCENE_END_TIME=$(date +%s)
-        SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
-        printf "场景 %s (dataset_mode=project, 小于%s) 运行时间: %s\n" "$scene" "$PIXEL_TAG" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
-    done
-
-    conda run --no-capture-output -n stereo-calib-vis python stereo_calib/scripts/plot_ba_threshold_comparison.py \
-        --scene "$result_prefix" \
-        --input-3px "stereo_calib/result/ba_results/${result_prefix}_ba_result_le_3px.json" \
-        --input-2px "stereo_calib/result/ba_results/${result_prefix}_ba_result_le_2px.json" \
-        --input-1px "stereo_calib/result/ba_results/${result_prefix}_ba_result_le_1px.json" \
-        --output "stereo_calib/result/${result_prefix}_ba_threshold_comparison.png"
-}
-
-run_kitti_scene() {
-    local scene=$1
-    local result_prefix
-    local skip_match_arg=""
-    local kitti_match_path="stereo_calib/result/match_points/kitti2015_${scene}_matches.json"
-    local kitti_ba_result_path="stereo_calib/result/ba_results/kitti2015_${scene}_ba_result.json"
-    result_prefix=$(result_prefix_for_mode "kitti2015" "$scene")
-
-    if [ -f "$kitti_match_path" ]; then
-        skip_match_arg="$SKIP_MATCH"
-    fi
-
-    echo "========================================"
-    echo "开始处理场景: $scene (dataset_mode=kitti2015)"
-    echo "========================================"
-    SCENE_START_TIME=$(date +%s)
-
-    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
-        --dataset_mode kitti2015 \
-        --scene "$scene" \
-        --kitti_root_dir "$KITTI_ROOT_DIR" \
-        --max_iter "$MAX_ITER" \
-        --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
-        --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
-        --min_pair_inliers "$MIN_PAIR_INLIERS" \
-        --max_score "$MAX_SCORE" \
-        $FIX_DISTORTION \
-        --min_track_len "$MIN_TRACK_LEN" \
-        --no_plot \
-        ${skip_match_arg:+$skip_match_arg}
-
-    SCENE_END_TIME=$(date +%s)
-    SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
-    printf "场景 %s (dataset_mode=kitti2015) 运行时间: %s\n" "$scene" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
-}
-
-run_kitti_raw_aggregate() {
-    echo "========================================"
-    echo "开始处理 KITTI RAW aggregate (dataset_mode=kitti_raw_aggregate)"
-    echo "========================================"
-    SCENE_START_TIME=$(date +%s)
-
-    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
-        --dataset_mode kitti_raw_aggregate \
-        --kitti_root_dir "$KITTI_ROOT_DIR" \
-        --match_json "$KITTI_AGGREGATE_MATCH_JSON" \
-        --result_prefix "$KITTI_AGGREGATE_RESULT_PREFIX" \
-        --max_iter "$MAX_ITER" \
-        --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
-        --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
-        --min_pair_inliers "$MIN_PAIR_INLIERS" \
-        --max_score "$MAX_SCORE" \
-        $FIX_DISTORTION \
-        --min_track_len "$MIN_TRACK_LEN" \
-        --no_plot \
-        --skip_match
-
-    SCENE_END_TIME=$(date +%s)
-    SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
-    printf "KITTI RAW aggregate 运行时间: %s\n" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
-}
-
 # 编译步骤
 echo "开始编译..."
-mkdir -p "$CURRENT_DIR/build" || { echo "创建build目录失败"; exit 1; }
-cd "$CURRENT_DIR/build" || { echo "进入build目录失败"; exit 1; }
-cmake ../stereo_calib || { echo "cmake配置失败"; exit 1; }
+cd "$CURRENT_DIR/stereo_calib/build" || { echo "进入build目录失败"; exit 1; }
+cmake .. || { echo "cmake配置失败"; exit 1; }
 make -j$(nproc) || { echo "编译失败"; exit 1; }
 cd "$CURRENT_DIR" || { echo "返回工作目录失败"; exit 1; }
 echo "编译完成！"
 
-# 先跑原有 project 场景
-for SCENE in "${PROJECT_SCENES[@]}"; do
-    run_project_threshold_sweep "$SCENE"
-done
-
-# 跑 KITTI RAW aggregate 总匹配文件
-run_kitti_raw_aggregate
-
-: <<'LEGACY_PROJECT_LOOP_REMOVED'
+# 循环执行
 for SCENE in "${SCENES_1[@]}"; do
     echo "========================================"
     echo "开始处理场景: $SCENE"
     echo "========================================"
+
+    echo "正在处理场景: $SCENE (默认，不限制像素阈值)"
+    SCENE_START_TIME=$(date +%s)
+
+    conda run --no-capture-output -n stereo-calib-vis python run_pipeline.py \
+        --scene "$SCENE" \
+        --max_iter "$MAX_ITER" \
+        --incremental_max_iter "$INCREMENTAL_MAX_ITER" \
+        --global_opt_interval "$GLOBAL_OPT_INTERVAL" \
+        --min_pair_inliers "$MIN_PAIR_INLIERS" \
+        --max_score "$MAX_SCORE" \
+        $FIX_DISTORTION \
+        --min_track_len "$MIN_TRACK_LEN" \
+        $SKIP_MATCH
+
+    SCENE_END_TIME=$(date +%s)
+    SCENE_ELAPSED_TIME=$((SCENE_END_TIME - SCENE_START_TIME))
+    printf "场景 %s (默认) 运行时间: %s\n" "$SCENE" "$(format_elapsed_time "$SCENE_ELAPSED_TIME")"
 
     for PIXEL_TAG in "${PIXEL_TAGS[@]}"; do
         echo "正在处理场景: $SCENE (小于${PIXEL_TAG})"
@@ -218,4 +107,3 @@ for SCENE in "${SCENES_1[@]}"; do
         --input-1px "stereo_calib/result/ba_results/${SCENE}_ba_result_le_1px.json" \
         --output "stereo_calib/result/${SCENE}_ba_threshold_comparison.png"
 done
-LEGACY_PROJECT_LOOP_REMOVED
