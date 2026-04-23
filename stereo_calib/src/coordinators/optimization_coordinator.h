@@ -34,6 +34,10 @@ struct OptimizationConfig {
   bool fix_distortion = true;
   double aspect_ratio_prior_weight = 100.0;
   double baseline_prior_weight = 10.0;
+  double tx_prior_weight = 0.0;
+  double focal_prior_weight = 0.0;
+  double focal_lower_scale = 0.5;
+  double focal_upper_scale = 1.5;
   double max_reproj_error = 20.0;
   
   // Outlier rejection

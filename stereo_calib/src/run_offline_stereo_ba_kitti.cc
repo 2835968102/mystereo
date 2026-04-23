@@ -134,8 +134,8 @@ void PrintUsage()
             << "[--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
             << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
             << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
-            << "[--baseline_prior 10.0] [--max_reproj_error 20.0] "
-            << "[--outlier_threshold 2.0] [--outlier_rounds 3]"
+            << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
+            << "[--max_reproj_error 20.0] [--outlier_threshold 2.0] [--outlier_rounds 3]"
             << std::endl;
 }
 
@@ -205,6 +205,14 @@ int main(int argc, char** argv)
       config.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
       config.baseline_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--tx_prior" && i + 1 < argc) {
+      config.tx_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--focal_prior" && i + 1 < argc) {
+      config.focal_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--focal_lower_scale" && i + 1 < argc) {
+      config.focal_lower_scale = std::stod(argv[++i]);
+    } else if (arg == "--focal_upper_scale" && i + 1 < argc) {
+      config.focal_upper_scale = std::stod(argv[++i]);
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {
       config.outlier_rejection_threshold = std::stod(argv[++i]);
     } else if (arg == "--outlier_rounds" && i + 1 < argc) {

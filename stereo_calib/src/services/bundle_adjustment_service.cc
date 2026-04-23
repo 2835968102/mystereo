@@ -81,7 +81,13 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
         state.init_extrinsics, config.baseline_prior_weight);
     problem.AddResidualBlock(prior_cost, nullptr, state.extrinsics.data());
   }
-  
+
+  if (config.tx_prior_weight > 0.0) {
+    ceres::CostFunction* tx_prior_cost = TxPriorFactor::Create(
+        state.init_extrinsics, config.tx_prior_weight);
+    problem.AddResidualBlock(tx_prior_cost, nullptr, state.extrinsics.data());
+  }
+
   if (config.aspect_ratio_prior_weight > 0.0) {
     ceres::CostFunction* aspect_left = AspectRatioPriorFactor::Create(
         config.aspect_ratio_prior_weight);
@@ -89,6 +95,15 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
         config.aspect_ratio_prior_weight);
     problem.AddResidualBlock(aspect_left, nullptr, state.intrinsics_left.data());
     problem.AddResidualBlock(aspect_right, nullptr, state.intrinsics_right.data());
+  }
+
+  if (config.focal_prior_weight > 0.0) {
+    ceres::CostFunction* focal_left = FocalPriorFactor::Create(
+        state.intrinsics_left, config.focal_prior_weight);
+    ceres::CostFunction* focal_right = FocalPriorFactor::Create(
+        state.intrinsics_right, config.focal_prior_weight);
+    problem.AddResidualBlock(focal_left, nullptr, state.intrinsics_left.data());
+    problem.AddResidualBlock(focal_right, nullptr, state.intrinsics_right.data());
   }
 
   // Fix intrinsic parameters (cx, cy, and optionally distortion)
@@ -105,10 +120,10 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
 
   // Set intrinsics manifold and bounds
   auto set_intrinsics_bounds = [&](double* intr, double init_fx, double init_fy) {
-    problem.SetParameterLowerBound(intr, 0, 0.5 * init_fx);
-    problem.SetParameterUpperBound(intr, 0, 1.5 * init_fx);
-    problem.SetParameterLowerBound(intr, 1, 0.5 * init_fy);
-    problem.SetParameterUpperBound(intr, 1, 1.5 * init_fy);
+    problem.SetParameterLowerBound(intr, 0, config.focal_lower_scale * init_fx);
+    problem.SetParameterUpperBound(intr, 0, config.focal_upper_scale * init_fx);
+    problem.SetParameterLowerBound(intr, 1, config.focal_lower_scale * init_fy);
+    problem.SetParameterUpperBound(intr, 1, config.focal_upper_scale * init_fy);
     problem.SetParameterLowerBound(intr, 4, -1.0);
     problem.SetParameterUpperBound(intr, 4, 1.0);
     problem.SetParameterLowerBound(intr, 5, -1.0);

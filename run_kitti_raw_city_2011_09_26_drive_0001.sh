@@ -9,6 +9,8 @@ BA_BIN="$BUILD_DIR/bin/run_offline_stereo_ba_kitti"
 MATCH_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/match_points"
 BA_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/ba_results"
 PLOT_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result"
+GT_PARAM_FILE="$CURRENT_DIR/stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json"
+INIT_PARAM_FILE="$CURRENT_DIR/stereo_calib/data/kitti_raw_00_01_init_params.txt"
 
 LEFT_IMG_DIR="/home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_00/data"
 RIGHT_IMG_DIR="/home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_01/data"
@@ -26,6 +28,11 @@ MIN_PAIR_INLIERS=15
 FIX_DISTORTION=1
 MAX_SCORE=0.5
 MIN_TRACK_LEN=3
+BASELINE_PRIOR=100
+TX_PRIOR=20
+FOCAL_PRIOR=1
+FOCAL_LOWER_SCALE=0.2
+FOCAL_UPPER_SCALE=3.0
 
 SCRIPT_START_TIME=$(date +%s)
 
@@ -56,6 +63,13 @@ usage() {
   --left_img_dir <path>   左目图像目录
   --right_img_dir <path>  右目图像目录
   --dataset_name <name>   输出文件名前缀
+  --gt_param_file <path>  GT 相机参数文件，用于结果对比
+  --init_param_file <path> 初始相机参数文件，用于 KITTI 初始化
+  --baseline_prior <float> 基线先验权重
+  --tx_prior <float> x 方向平移先验权重
+  --focal_prior <float> 焦距先验权重
+  --focal_lower_scale <float> 焦距下界缩放因子
+  --focal_upper_scale <float> 焦距上界缩放因子
   --conf_thresh <float>   SuperPoint 关键点置信度阈值
   --nms_dist <int>        SuperPoint NMS 抑制半径
   --nn_thresh <float>     SuperPoint 描述子匹配阈值
@@ -77,6 +91,34 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dataset_name)
             DATASET_NAME="$2"
+            shift 2
+            ;;
+        --gt_param_file)
+            GT_PARAM_FILE="$2"
+            shift 2
+            ;;
+        --init_param_file)
+            INIT_PARAM_FILE="$2"
+            shift 2
+            ;;
+        --baseline_prior)
+            BASELINE_PRIOR="$2"
+            shift 2
+            ;;
+        --tx_prior)
+            TX_PRIOR="$2"
+            shift 2
+            ;;
+        --focal_prior)
+            FOCAL_PRIOR="$2"
+            shift 2
+            ;;
+        --focal_lower_scale)
+            FOCAL_LOWER_SCALE="$2"
+            shift 2
+            ;;
+        --focal_upper_scale)
+            FOCAL_UPPER_SCALE="$2"
             shift 2
             ;;
         --conf_thresh)
@@ -134,6 +176,14 @@ if [[ ! -d "$RIGHT_IMG_DIR" ]]; then
     echo "右图目录不存在: $RIGHT_IMG_DIR"
     exit 1
 fi
+if [[ ! -f "$GT_PARAM_FILE" ]]; then
+    echo "GT 参数文件不存在: $GT_PARAM_FILE"
+    exit 1
+fi
+if [[ ! -f "$INIT_PARAM_FILE" ]]; then
+    echo "初始参数文件不存在: $INIT_PARAM_FILE"
+    exit 1
+fi
 
 echo "开始编译..."
 cmake -S "$CURRENT_DIR/stereo_calib" -B "$BUILD_DIR"
@@ -149,6 +199,12 @@ echo "========================================"
 echo "开始处理数据集: $DATASET_NAME"
 echo "左图目录: $LEFT_IMG_DIR"
 echo "右图目录: $RIGHT_IMG_DIR"
+echo "GT 参数: $GT_PARAM_FILE"
+echo "初始参数: $INIT_PARAM_FILE"
+echo "baseline prior: $BASELINE_PRIOR"
+echo "tx prior: $TX_PRIOR"
+echo "focal prior: $FOCAL_PRIOR"
+echo "focal bound scale: [$FOCAL_LOWER_SCALE, $FOCAL_UPPER_SCALE]"
 echo "参数标签: $PARAM_TAG"
 echo "匹配输出: $OUTPUT_MATCH_JSON"
 echo "BA 输出: $OUTPUT_BA_JSON"
@@ -175,6 +231,13 @@ BA_CMD=(
     "$BA_BIN"
     --input "$OUTPUT_MATCH_JSON"
     --output "$OUTPUT_BA_JSON"
+    --gt_param_file "$GT_PARAM_FILE"
+    --init_param_file "$INIT_PARAM_FILE"
+    --baseline_prior "$BASELINE_PRIOR"
+    --tx_prior "$TX_PRIOR"
+    --focal_prior "$FOCAL_PRIOR"
+    --focal_lower_scale "$FOCAL_LOWER_SCALE"
+    --focal_upper_scale "$FOCAL_UPPER_SCALE"
     --max_iter "$MAX_ITER"
     --incremental_max_iter "$INCREMENTAL_MAX_ITER"
     --global_opt_interval "$GLOBAL_OPT_INTERVAL"

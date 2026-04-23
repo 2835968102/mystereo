@@ -47,6 +47,10 @@ BAConfig OptimizationCoordinator::ToBAConfig(
   bc.fix_distortion = config.fix_distortion;
   bc.aspect_ratio_prior_weight = config.aspect_ratio_prior_weight;
   bc.baseline_prior_weight = config.baseline_prior_weight;
+  bc.tx_prior_weight = config.tx_prior_weight;
+  bc.focal_prior_weight = config.focal_prior_weight;
+  bc.focal_lower_scale = config.focal_lower_scale;
+  bc.focal_upper_scale = config.focal_upper_scale;
   return bc;
 }
 
@@ -196,21 +200,55 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     // Periodic global BA disabled temporarily.
   }
 
-  // ── Step 7: Finalization without global BA ────────────────────────────────
+  // ── Step 7: Post-pass outlier rejection + final global BA ────────────────
+  if (!have_rmse) {
+    std::cerr << "No per-registration BA result available." << std::endl;
+    return result;
+  }
+
+  OutlierRejectionState outlier_state;
+  outlier_state.intrinsics_left = state.intrinsics_left;
+  outlier_state.intrinsics_right = state.intrinsics_right;
+  outlier_state.extrinsics = state.extrinsics;
+  outlier_state.frames = &frames;
+  outlier_state.tracks = &tracks;
+
+  const int rejected = outlier_service_->RejectOutliers(
+      outlier_state, config.outlier_rejection_threshold);
+  std::cout << "[Post BA Outlier Rejection] rejected=" << rejected
+            << ", threshold=" << std::fixed << std::setprecision(4)
+            << config.outlier_rejection_threshold << " px" << std::endl;
+
+  BAResult final_ba_result = ba_service_->RunBundleAdjustment(
+      state, active_frames, ToBAConfig(config, config.max_iter), -1);
+  if (final_ba_result.success) {
+    result.final_reproj_error = final_ba_result.final_rmse;
+    std::cout << "[Final Global BA] registered_frames=" << (successful_registrations + 1)
+              << "/" << reg_order.size()
+              << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+              << final_ba_result.final_rmse << " px" << std::endl;
+
+    StereoCamera current = BuildCamera(state);
+    eval_service_->PrintCurrentVsGroundTruth("Final Global BA", current);
+    eval_service_->RecordOptimizationStage("Final Global BA",
+                                           final_ba_result.final_rmse,
+                                           current);
+  } else {
+    std::cerr << "Final global BA failed after outlier rejection." << std::endl;
+  }
+
+  // ── Step 8: Finalization ───────────────────────────────────────────────────
   StereoCamera final_camera = BuildCamera(state);
 
-  std::cout << "Global BA disabled. Using incremental BA result." << std::endl;
   std::cout << "Tracks=" << result.num_tracks
             << ", observations=" << result.num_observations
             << ", frames=" << result.num_frames << std::endl;
   std::cout << "Reprojection error: final=" << std::fixed << std::setprecision(4)
             << result.final_reproj_error << " px" << std::endl;
 
-  const bool pass_reproj = have_rmse && (result.final_reproj_error <= config.max_reproj_error);
-  if (!have_rmse) {
-    std::cerr << "No incremental BA result available." << std::endl;
-  }
-  if (have_rmse && !pass_reproj) {
+  const bool pass_reproj = final_ba_result.success &&
+                           (result.final_reproj_error <= config.max_reproj_error);
+  if (!pass_reproj) {
     std::cerr << "Final reprojection error " << result.final_reproj_error
               << " px exceeds threshold " << config.max_reproj_error << " px." << std::endl;
   }

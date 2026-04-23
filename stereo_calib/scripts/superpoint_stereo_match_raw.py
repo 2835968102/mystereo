@@ -288,6 +288,33 @@ def build_image_records(image_dir: str, image_label: str, is_left: bool):
     return records
 
 
+def build_sparse_kitti_pairs(left_records, right_records):
+    left_by_frame = {record['frame_id']: record for record in left_records}
+    right_by_frame = {record['frame_id']: record for record in right_records}
+    frame_ids = sorted(set(left_by_frame) | set(right_by_frame))
+
+    missing_left = [frame_id for frame_id in frame_ids if frame_id not in left_by_frame]
+    missing_right = [frame_id for frame_id in frame_ids if frame_id not in right_by_frame]
+    if missing_left or missing_right:
+        parts = []
+        if missing_left:
+            parts.append(f"missing left frames: {', '.join(missing_left[:5])}")
+        if missing_right:
+            parts.append(f"missing right frames: {', '.join(missing_right[:5])}")
+        raise ValueError('Incomplete stereo sequence: ' + '; '.join(parts))
+
+    pair_records = []
+    for idx, frame_id in enumerate(frame_ids):
+        pair_records.append((left_by_frame[frame_id], right_by_frame[frame_id]))
+        if idx + 1 >= len(frame_ids):
+            continue
+        next_frame_id = frame_ids[idx + 1]
+        pair_records.append((left_by_frame[frame_id], left_by_frame[next_frame_id]))
+        pair_records.append((right_by_frame[frame_id], right_by_frame[next_frame_id]))
+
+    return pair_records
+
+
 def main():
     args = parse_args()
 
@@ -313,8 +340,14 @@ def main():
     image_records = left_records + right_records
     if len(image_records) < 2:
         sys.exit(f'Need at least 2 images in dataset selection: {args.left_img_dir} {args.right_img_dir}')
-    n_pairs = len(image_records) * (len(image_records) - 1) // 2
-    print(f'Found {len(image_records)} image(s), {n_pairs} pair(s) to match.')
+
+    try:
+        pair_records = build_sparse_kitti_pairs(left_records, right_records)
+    except ValueError as exc:
+        sys.exit(str(exc))
+
+    n_pairs = len(pair_records)
+    print(f'Found {len(image_records)} image(s), {n_pairs} sparse pair(s) to match.')
 
     result = {'pairs': []}
 
@@ -327,7 +360,7 @@ def main():
         return cache[path]
 
     total_matches = 0
-    for rec_a, rec_b in itertools.combinations(image_records, 2):
+    for rec_a, rec_b in pair_records:
         print(f"  {rec_a['image_name']} <-> {rec_b['image_name']} ...", end=' ', flush=True)
 
         pts_a, desc_a = get_feats(rec_a['path'])

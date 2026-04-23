@@ -39,7 +39,10 @@ int OutlierRejectionService::RejectOutliers(OutlierRejectionState& state,
         continue;
       }
 
-      const cv::Mat X_l = camera_math::ToRotation(frames[obs.frame_idx].rvec) * X_w;
+      const cv::Mat R_lw = camera_math::ToRotation(frames[obs.frame_idx].rvec);
+      const cv::Mat t_lw = (cv::Mat_<double>(3, 1)
+          << frames[obs.frame_idx].tvec[0], frames[obs.frame_idx].tvec[1], frames[obs.frame_idx].tvec[2]);
+      const cv::Mat X_l = R_lw * X_w + t_lw;
 
       cv::Mat X_cam = X_l;
       const double* intr = state.intrinsics_left.data();

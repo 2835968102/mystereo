@@ -179,6 +179,26 @@ ceres::CostFunction* BaselinePriorFactor::Create(const vector<double>& init_extr
       new BaselinePriorFactor(init_extrinsics, weight));
 }
 
+// ─── TxPriorFactor ───────────────────────────────────────────────────────────
+
+TxPriorFactor::TxPriorFactor(const vector<double>& init_extrinsics, double weight)
+    : init_tx_(init_extrinsics[3]), weight_(weight)
+{
+}
+
+bool TxPriorFactor::operator()(const double* extrinsics, double* residual) const
+{
+  residual[0] = weight_ * (extrinsics[3] - init_tx_);
+  return true;
+}
+
+ceres::CostFunction* TxPriorFactor::Create(const vector<double>& init_extrinsics,
+                                           double weight)
+{
+  return new ceres::NumericDiffCostFunction<TxPriorFactor, ceres::CENTRAL, 1, 6>(
+      new TxPriorFactor(init_extrinsics, weight));
+}
+
 // ─── AspectRatioPriorFactor ─────────────────────────────────────────────────
 
 bool AspectRatioPriorFactor::operator()(const double* intrinsics, double* residual) const
@@ -191,6 +211,27 @@ ceres::CostFunction* AspectRatioPriorFactor::Create(double weight)
 {
   return new ceres::NumericDiffCostFunction<AspectRatioPriorFactor, ceres::CENTRAL, 1, 9>(
       new AspectRatioPriorFactor(weight));
+}
+
+// ─── FocalPriorFactor ────────────────────────────────────────────────────────
+
+FocalPriorFactor::FocalPriorFactor(const vector<double>& init_intrinsics, double weight)
+    : init_fx_(init_intrinsics[0]), init_fy_(init_intrinsics[1]), weight_(weight)
+{
+}
+
+bool FocalPriorFactor::operator()(const double* intrinsics, double* residual) const
+{
+  residual[0] = weight_ * (intrinsics[0] - init_fx_);
+  residual[1] = weight_ * (intrinsics[1] - init_fy_);
+  return true;
+}
+
+ceres::CostFunction* FocalPriorFactor::Create(const vector<double>& init_intrinsics,
+                                              double weight)
+{
+  return new ceres::NumericDiffCostFunction<FocalPriorFactor, ceres::CENTRAL, 2, 9>(
+      new FocalPriorFactor(init_intrinsics, weight));
 }
 
 }  // namespace stereocalib

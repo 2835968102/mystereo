@@ -6,7 +6,9 @@
  *   RightReprojFactor       – residual between observed right pixel and projected 3D point
  *   TrackReprojFactor       – reprojection with per-frame rotation (offline multi-frame BA)
  *   BaselinePriorFactor     – soft prior on stereo baseline translation
+ *   TxPriorFactor           – soft prior on stereo x translation
  *   AspectRatioPriorFactor  – soft prior encouraging fx ≈ fy
+ *   FocalPriorFactor        – soft prior keeping fx/fy near initial values
  *
  * All use NumericDiffCostFunction with CENTRAL differences (same pattern as
  * krt_optimizer / ptzray_optimizer in the parent project) so that OpenCV
@@ -119,6 +121,26 @@ class BaselinePriorFactor {
   double weight_ = 0.0;
 };
 
+// ─── Tx prior factor ─────────────────────────────────────────────────────────
+//
+// Penalises deviations of stereo tx from the initial value.
+// Optimises: extrinsics [6]
+// Residual dim: 1
+
+class TxPriorFactor {
+ public:
+  TxPriorFactor(const std::vector<double>& init_extrinsics, double weight);
+
+  bool operator()(const double* extrinsics, double* residual) const;
+
+  static ceres::CostFunction* Create(const std::vector<double>& init_extrinsics,
+                                     double weight);
+
+ private:
+  double init_tx_ = 0.0;
+  double weight_ = 0.0;
+};
+
 // ─── Aspect ratio prior factor ───────────────────────────────────────────────
 //
 // Penalises fx ≠ fy (encourages square pixels).
@@ -134,6 +156,27 @@ class AspectRatioPriorFactor {
   static ceres::CostFunction* Create(double weight);
 
  private:
+  double weight_ = 0.0;
+};
+
+// ─── Focal prior factor ──────────────────────────────────────────────────────
+//
+// Penalises deviations of fx/fy from initial values.
+// Optimises: intrinsics [9]
+// Residual dim: 2
+
+class FocalPriorFactor {
+ public:
+  FocalPriorFactor(const std::vector<double>& init_intrinsics, double weight);
+
+  bool operator()(const double* intrinsics, double* residual) const;
+
+  static ceres::CostFunction* Create(const std::vector<double>& init_intrinsics,
+                                     double weight);
+
+ private:
+  double init_fx_ = 0.0;
+  double init_fy_ = 0.0;
   double weight_ = 0.0;
 };
 
