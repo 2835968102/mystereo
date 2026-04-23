@@ -78,7 +78,7 @@ class OptimizationCoordinator {
   
   ~OptimizationCoordinator() = default;
 
-  /// Run the full incremental BA workflow.
+  /// Run the registration workflow with per-step active-set global BA.
   /// @param input Input data (initial camera + image pairs).
   /// @param config Optimization configuration.
   /// @return Optimization result.

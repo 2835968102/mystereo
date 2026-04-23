@@ -159,7 +159,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     return result;
   }
 
-  // ── Step 6: Incremental BA ────────────────────────────────────────────────
+  // ── Step 6: Active-set global BA after each registration ─────────────────
   const auto& reg_order = frame_init.registration_order;
   std::vector<char> active_frames(frames.size(), 0);
   active_frames[reg_order[0]] = 1;
@@ -175,29 +175,26 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     active_frames[frame_idx] = 1;
     successful_registrations++;
 
-    // Incremental BA for new frame
     BAResult ba_result = ba_service_->RunBundleAdjustment(
-        state, active_frames, ToBAConfig(config, config.incremental_max_iter), frame_idx);
-    
+        state, active_frames, ToBAConfig(config, config.incremental_max_iter), -1);
+
     if (ba_result.success) {
       if (!have_rmse) {
         result.init_reproj_error = ba_result.init_rmse;
         have_rmse = true;
       }
       result.final_reproj_error = ba_result.final_rmse;
-      
-      std::cout << "[Incremental BA] registered_frames=" << (i + 1)
+
+      std::cout << "[Active-Set Global BA] registered_frames=" << (i + 1)
                 << "/" << reg_order.size()
                 << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                 << ba_result.final_rmse << " px" << std::endl;
 
-      std::string stage_name = "Incremental BA - Frame " + std::to_string(i + 1);
+      std::string stage_name = "Global BA - Registered Frame " + std::to_string(i + 1);
       StereoCamera current = BuildCamera(state);
       eval_service_->PrintCurrentVsGroundTruth(stage_name, current);
       eval_service_->RecordOptimizationStage(stage_name, ba_result.final_rmse, current);
     }
-
-    // Periodic global BA disabled temporarily.
   }
 
   // ── Step 7: Post-pass outlier rejection + final global BA ────────────────
@@ -250,7 +247,8 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
                            (result.final_reproj_error <= config.max_reproj_error);
   if (!pass_reproj) {
     std::cerr << "Final reprojection error " << result.final_reproj_error
-              << " px exceeds threshold " << config.max_reproj_error << " px." << std::endl;
+              << " px exceeds threshold " << config.max_reproj_error << " px."
+              << std::endl;
   }
 
   // ── Finalize result ───────────────────────────────────────────────────────
