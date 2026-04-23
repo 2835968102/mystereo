@@ -34,6 +34,7 @@ struct FrameState {
   int left_image_idx = -1;
   int right_image_idx = -1;
   std::vector<double> rvec = {0.0, 0.0, 0.0};
+  std::vector<double> tvec = {0.0, 0.0, 0.0};
   bool initialized = false;
 
   // Ground truth pose (if available)

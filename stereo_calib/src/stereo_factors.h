@@ -76,9 +76,9 @@ class RightReprojFactor {
 
 // ─── Track reprojection factor (multi-frame BA) ──────────────────────────────
 //
-// Reprojects a world-frame 3D point through a per-frame rotation into either
+// Reprojects a world-frame 3D point through a per-frame pose into either
 // the left or right camera.
-// Optimises: intr_left [9], intr_right [9], extrinsics [6], frame_rvec [3], point3d [3]
+// Optimises: intr_left [9], intr_right [9], extrinsics [6], frame_rvec [3], frame_tvec [3], point3d [3]
 // Residual dim: 2
 
 class TrackReprojFactor {
@@ -89,6 +89,7 @@ class TrackReprojFactor {
                   const double* intr_right,
                   const double* extrinsics,
                   const double* frame_rvec,
+                  const double* frame_tvec,
                   const double* point3d,
                   double* residual) const;
 

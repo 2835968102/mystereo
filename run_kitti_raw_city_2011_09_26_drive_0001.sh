@@ -5,7 +5,7 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_PATH="$CURRENT_DIR/stereo_calib/scripts/superpoint_stereo_match_raw.py"
 PLOT_SCRIPT="$CURRENT_DIR/stereo_calib/scripts/plot_ba_history.py"
 BUILD_DIR="$CURRENT_DIR/build"
-BA_BIN="$BUILD_DIR/bin/run_offline_stereo_ba"
+BA_BIN="$BUILD_DIR/bin/run_offline_stereo_ba_kitti"
 MATCH_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/match_points"
 BA_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/ba_results"
 PLOT_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result"
@@ -20,7 +20,7 @@ NN_THRESH=1
 USE_CUDA=0
 
 MAX_ITER=40
-INCREMENTAL_MAX_ITER=1
+INCREMENTAL_MAX_ITER=30
 GLOBAL_OPT_INTERVAL=50
 MIN_PAIR_INLIERS=15
 FIX_DISTORTION=1

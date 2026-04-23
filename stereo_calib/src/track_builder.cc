@@ -18,11 +18,24 @@ namespace stereocalib {
 namespace {
 
 
-bool EstimatePureRotation(const std::vector<cv::Point2f>& pts_from,
-                          const std::vector<cv::Point2f>& pts_to,
-                          const cv::Mat& K,
-                          const cv::Mat& dist,
-                          cv::Mat& R_rel)
+cv::Mat ToColumnMat(const std::vector<double>& vec)
+{
+  return (cv::Mat_<double>(3, 1) << vec[0], vec[1], vec[2]);
+}
+
+cv::Mat WorldFromCamera(const FrameState& frame, const cv::Mat& X_l)
+{
+  const cv::Mat R_lw = camera_math::ToRotation(frame.rvec);
+  const cv::Mat t_lw = ToColumnMat(frame.tvec);
+  return R_lw.t() * (X_l - t_lw);
+}
+
+bool EstimatePoseFromEssential(const std::vector<cv::Point2f>& pts_from,
+                               const std::vector<cv::Point2f>& pts_to,
+                               const cv::Mat& K,
+                               const cv::Mat& dist,
+                               cv::Mat& rvec_to,
+                               cv::Mat& tvec_to)
 {
   if (pts_from.size() < 8 || pts_to.size() < 8) {
     return false;
@@ -34,25 +47,121 @@ bool EstimatePureRotation(const std::vector<cv::Point2f>& pts_from,
   cv::undistortPoints(pts_to, und_to, K, dist);
 
   cv::Mat inliers;
-  const cv::Mat H = cv::findHomography(und_from, und_to, cv::RANSAC, 2.5, inliers, 2000, 0.995);
-  if (H.empty()) {
+  const cv::Mat E = cv::findEssentialMat(und_from, und_to, 1.0, cv::Point2d(0.0, 0.0),
+                                         cv::RANSAC, 0.999, 1e-3, inliers);
+  if (E.empty()) {
     return false;
   }
 
-  cv::SVD svd(H);
-  cv::Mat R = svd.u * svd.vt;
-  if (cv::determinant(R) < 0.0) {
-    R = -R;
-  }
-
-  if (!cv::checkRange(R)) {
+  cv::Mat R_rel;
+  cv::Mat t_rel;
+  const int recovered = cv::recoverPose(E, und_from, und_to, R_rel, t_rel, 1.0, cv::Point2d(0.0, 0.0), inliers);
+  if (recovered < 8) {
     return false;
   }
 
-  R_rel = R;
-  return true;
+  cv::Rodrigues(R_rel, rvec_to);
+  tvec_to = t_rel.clone();
+  return cv::checkRange(R_rel) && cv::checkRange(tvec_to);
 }
 
+bool CollectStereoPnPData(const StereoCamera& init_camera,
+                          const std::vector<Track>& tracks,
+                          const std::vector<FrameState>& frames,
+                          int source_frame_idx,
+                          int target_frame_idx,
+                          std::vector<cv::Point3f>& object_points,
+                          std::vector<cv::Point2f>& image_points)
+{
+  object_points.clear();
+  image_points.clear();
+
+  const cv::Mat K_l = init_camera.left.K();
+  const cv::Mat dist_l = init_camera.left.dist();
+  const cv::Mat K_r = init_camera.right.K();
+  const cv::Mat dist_r = init_camera.right.dist();
+  const cv::Mat R_rl = init_camera.extrinsics.R;
+  const cv::Mat t_rl = init_camera.extrinsics.t;
+
+  for (size_t ti = 0; ti < tracks.size(); ++ti) {
+    const Track& track = tracks[ti];
+    const TrackObservation* src_left = nullptr;
+    const TrackObservation* src_right = nullptr;
+    const TrackObservation* target_left = nullptr;
+
+    for (size_t oi = 0; oi < track.observations.size(); ++oi) {
+      const TrackObservation& obs = track.observations[oi];
+      if (obs.frame_idx == source_frame_idx) {
+        if (obs.is_left) {
+          src_left = &obs;
+        } else {
+          src_right = &obs;
+        }
+      } else if (obs.frame_idx == target_frame_idx && obs.is_left) {
+        target_left = &obs;
+      }
+    }
+
+    if (src_left == nullptr || src_right == nullptr || target_left == nullptr) {
+      continue;
+    }
+
+    cv::Point3d X_l;
+    if (!camera_math::TriangulatePoint(src_left->px, src_right->px,
+                                       K_l, K_r, dist_l, dist_r, R_rl, t_rl, X_l)) {
+      continue;
+    }
+    if (X_l.z <= 0.0) {
+      continue;
+    }
+
+    const cv::Mat Xw = WorldFromCamera(frames[source_frame_idx],
+                                       (cv::Mat_<double>(3, 1) << X_l.x, X_l.y, X_l.z));
+    object_points.emplace_back(static_cast<float>(Xw.at<double>(0, 0)),
+                               static_cast<float>(Xw.at<double>(1, 0)),
+                               static_cast<float>(Xw.at<double>(2, 0)));
+    image_points.push_back(target_left->px);
+  }
+
+  return object_points.size() >= 6;
+}
+
+bool EstimatePoseFromPnP(const std::vector<cv::Point3f>& object_points,
+                         const std::vector<cv::Point2f>& image_points,
+                         const cv::Mat& K,
+                         const cv::Mat& dist,
+                         const FrameState& initial_frame,
+                         cv::Mat& rvec,
+                         cv::Mat& tvec,
+                         int& inlier_count)
+{
+  inlier_count = 0;
+  if (object_points.size() < 6 || image_points.size() < 6 || object_points.size() != image_points.size()) {
+    return false;
+  }
+
+  rvec = ToColumnMat(initial_frame.rvec);
+  tvec = ToColumnMat(initial_frame.tvec);
+  cv::Mat inliers;
+  const bool ok = cv::solvePnPRansac(object_points,
+                                     image_points,
+                                     K,
+                                     dist,
+                                     rvec,
+                                     tvec,
+                                     true,
+                                     200,
+                                     8.0,
+                                     0.99,
+                                     inliers,
+                                     cv::SOLVEPNP_ITERATIVE);
+  if (!ok) {
+    return false;
+  }
+
+  inlier_count = inliers.rows;
+  return inlier_count >= 6 && cv::checkRange(rvec) && cv::checkRange(tvec);
+}
 
 std::string Basename(const std::string& path)
 {
@@ -506,8 +615,13 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
     }
   }
 
+  for (size_t i = 0; i < frames.size(); ++i) {
+    frames[i].initialized = false;
+    frames[i].rvec.assign(3, 0.0);
+    frames[i].tvec.assign(3, 0.0);
+  }
+
   frames[start_frame].initialized = true;
-  frames[start_frame].rvec.assign(3, 0.0);
   fixed_frame_idx = start_frame;
   registration_order.push_back(start_frame);
 
@@ -522,11 +636,11 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
     if (!SelectNextFrameFromPrevious(pairs, images, max_match_score,
                                      min_pair_inliers, min_pair_inlier_ratio,
                                      best_from, frames, best_to)) {
-      // Fall back to identity for the remaining frames.
       for (size_t i = 0; i < frames.size(); ++i) {
         if (!frames[i].initialized) {
           frames[i].initialized = true;
-          frames[i].rvec.assign(3, 0.0);
+          frames[i].rvec = frames[best_from].rvec;
+          frames[i].tvec = frames[best_from].tvec;
           registration_order.push_back(static_cast<int>(i));
           registered++;
         }
@@ -534,60 +648,64 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
       break;
     }
 
-    const size_t overlap = CollectLeftLeftCorrespondences(tracks, best_from, best_to, pts_from, pts_to);
-    if (overlap < 8) {
-      frames[best_to].initialized = true;
-      frames[best_to].rvec = frames[best_from].rvec;
-      registration_order.push_back(best_to);
-      registered++;
-      continue;
+    bool pose_initialized = false;
+    std::vector<cv::Point3f> object_points;
+    std::vector<cv::Point2f> image_points;
+    if (CollectStereoPnPData(init_camera, tracks, frames, best_from, best_to, object_points, image_points)) {
+      cv::Mat rvec_to;
+      cv::Mat tvec_to;
+      int pnp_inliers = 0;
+      if (EstimatePoseFromPnP(object_points, image_points, K, dist, frames[best_from],
+                              rvec_to, tvec_to, pnp_inliers)) {
+        frames[best_to].rvec = {
+            rvec_to.at<double>(0, 0),
+            rvec_to.at<double>(1, 0),
+            rvec_to.at<double>(2, 0),
+        };
+        frames[best_to].tvec = {
+            tvec_to.at<double>(0, 0),
+            tvec_to.at<double>(1, 0),
+            tvec_to.at<double>(2, 0),
+        };
+        pose_initialized = true;
+      }
     }
 
-    // ── Pixel-disparity filter ─────────────────────────────────────────────
-    {
-      const double kMaxPixelDisp = 300.0;
-      std::vector<cv::Point2f> filt_from, filt_to;
-      filt_from.reserve(pts_from.size());
-      filt_to.reserve(pts_to.size());
-      for (size_t i = 0; i < pts_from.size(); ++i) {
-        const double dx = pts_to[i].x - pts_from[i].x;
-        const double dy = pts_to[i].y - pts_from[i].y;
-        if (dx * dx + dy * dy <= kMaxPixelDisp * kMaxPixelDisp) {
-          filt_from.push_back(pts_from[i]);
-          filt_to.push_back(pts_to[i]);
+    if (!pose_initialized) {
+      const size_t overlap = CollectLeftLeftCorrespondences(tracks, best_from, best_to, pts_from, pts_to);
+      if (overlap >= 8) {
+        cv::Mat rel_rvec;
+        cv::Mat rel_tvec;
+        if (EstimatePoseFromEssential(pts_from, pts_to, K, dist, rel_rvec, rel_tvec)) {
+          const cv::Mat R_from = camera_math::ToRotation(frames[best_from].rvec);
+          cv::Mat R_rel;
+          cv::Rodrigues(rel_rvec, R_rel);
+          const cv::Mat R_to = R_rel * R_from;
+          cv::Mat rvec_to;
+          cv::Rodrigues(R_to, rvec_to);
+
+          const cv::Mat t_from = ToColumnMat(frames[best_from].tvec);
+          const cv::Mat t_to = t_from + rel_tvec;
+          frames[best_to].rvec = {
+              rvec_to.at<double>(0, 0),
+              rvec_to.at<double>(1, 0),
+              rvec_to.at<double>(2, 0),
+          };
+          frames[best_to].tvec = {
+              t_to.at<double>(0, 0),
+              t_to.at<double>(1, 0),
+              t_to.at<double>(2, 0),
+          };
+          pose_initialized = true;
         }
       }
-      pts_from.swap(filt_from);
-      pts_to.swap(filt_to);
     }
 
-    if (pts_from.size() < 8) {
-      frames[best_to].initialized = true;
+    if (!pose_initialized) {
       frames[best_to].rvec = frames[best_from].rvec;
-      registration_order.push_back(best_to);
-      registered++;
-      continue;
+      frames[best_to].tvec = frames[best_from].tvec;
     }
 
-    cv::Mat R_rel;
-    if (!EstimatePureRotation(pts_from, pts_to, K, dist, R_rel)) {
-      frames[best_to].initialized = true;
-      frames[best_to].rvec = frames[best_from].rvec;
-      registration_order.push_back(best_to);
-      registered++;
-      continue;
-    }
-
-    const cv::Mat R_from = camera_math::ToRotation(frames[best_from].rvec);
-    const cv::Mat R_to = R_rel * R_from;
-
-    cv::Mat rvec_to;
-    cv::Rodrigues(R_to, rvec_to);
-    frames[best_to].rvec = {
-        rvec_to.at<double>(0, 0),
-        rvec_to.at<double>(1, 0),
-        rvec_to.at<double>(2, 0),
-    };
     frames[best_to].initialized = true;
     registration_order.push_back(best_to);
     registered++;
@@ -659,8 +777,7 @@ bool InitializeTrackPoints(const StereoCamera& init_camera,
           continue;
         }
 
-        const cv::Mat R_lw = camera_math::ToRotation(frames[obs_l.frame_idx].rvec);
-        const cv::Mat Xw = R_lw.t() * Xl;
+        const cv::Mat Xw = WorldFromCamera(frames[obs_l.frame_idx], Xl);
 
         track.point3d[0] = Xw.at<double>(0, 0);
         track.point3d[1] = Xw.at<double>(1, 0);
@@ -690,8 +807,7 @@ bool InitializeTrackPoints(const StereoCamera& init_camera,
              p_n[0].y,
              1.0);
 
-      const cv::Mat R_lw = camera_math::ToRotation(frames[obs.frame_idx].rvec);
-      const cv::Mat Xw = R_lw.t() * (5.0 * ray_l);
+      const cv::Mat Xw = WorldFromCamera(frames[obs.frame_idx], 5.0 * ray_l);
       track.point3d[0] = Xw.at<double>(0, 0);
       track.point3d[1] = Xw.at<double>(1, 0);
       track.point3d[2] = Xw.at<double>(2, 0);

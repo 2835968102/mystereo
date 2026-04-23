@@ -65,6 +65,7 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
                                state.intrinsics_right.data(),
                                state.extrinsics.data(),
                                frames[obs.frame_idx].rvec.data(),
+                               frames[obs.frame_idx].tvec.data(),
                                tracks[ti].point3d.data());
       active_residuals++;
     }
@@ -135,7 +136,9 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
 
   // Fix frame poses as needed
   for (size_t fi = 0; fi < frames.size(); ++fi) {
-    if (!problem.HasParameterBlock(frames[fi].rvec.data())) {
+    const bool has_rvec = problem.HasParameterBlock(frames[fi].rvec.data());
+    const bool has_tvec = problem.HasParameterBlock(frames[fi].tvec.data());
+    if (!has_rvec && !has_tvec) {
       continue;
     }
 
@@ -149,7 +152,12 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     }
 
     if (should_fix) {
-      problem.SetParameterBlockConstant(frames[fi].rvec.data());
+      if (has_rvec) {
+        problem.SetParameterBlockConstant(frames[fi].rvec.data());
+      }
+      if (has_tvec) {
+        problem.SetParameterBlockConstant(frames[fi].tvec.data());
+      }
     }
   }
 

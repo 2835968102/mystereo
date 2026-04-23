@@ -28,9 +28,9 @@ class IInitializationService {
  public:
   virtual ~IInitializationService() = default;
 
-  /// Initialize frame rotations using raw-pair score ordering and pure rotation estimation.
+  /// Initialize frame poses using raw-pair score ordering and pose estimation.
   /// @param init_camera Initial stereo camera parameters.
-  /// @param tracks Feature tracks used only for correspondence extraction during rotation estimation.
+  /// @param tracks Feature tracks used for correspondence extraction during pose estimation.
   /// @param frames Frame states to initialize (modified in place).
   /// @return Initialization result with registration order.
   virtual FrameInitResult InitializeFrameRotations(

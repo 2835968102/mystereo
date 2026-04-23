@@ -63,3 +63,7 @@ target_link_libraries(run_stereo_calib stereo_core ${EXTERNAL_LIBRARIES})
 # Offline BA executable (track-building + global robust BA)
 add_executable(run_offline_stereo_ba src/run_offline_stereo_ba.cc)
 target_link_libraries(run_offline_stereo_ba stereo_core ${EXTERNAL_LIBRARIES})
+
+# KITTI-specific offline BA executable
+add_executable(run_offline_stereo_ba_kitti src/run_offline_stereo_ba_kitti.cc)
+target_link_libraries(run_offline_stereo_ba_kitti stereo_core ${EXTERNAL_LIBRARIES})

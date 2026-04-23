@@ -122,7 +122,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   // ── Step 2: Apply ground truth frame poses ────────────────────────────────
   ApplyFramePoses(frames);
 
-  // ── Step 3: Frame rotation initialization ─────────────────────────────────
+  // ── Step 3: Frame pose initialization ─────────────────────────────────────
   FrameInitResult frame_init = init_service_->InitializeFrameRotations(
       input.init_camera,
       input.pairs,
@@ -133,7 +133,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
       tracks,
       frames);
   if (!frame_init.success || frame_init.registration_order.empty()) {
-    std::cerr << "Frame rotation initialization failed." << std::endl;
+    std::cerr << "Frame pose initialization failed." << std::endl;
     return result;
   }
 

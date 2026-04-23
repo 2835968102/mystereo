@@ -104,6 +104,7 @@ bool TrackReprojFactor::operator()(const double* intr_left,
                                    const double* intr_right,
                                    const double* extrinsics,
                                    const double* frame_rvec,
+                                   const double* frame_tvec,
                                    const double* point3d,
                                    double* residual) const
 {
@@ -111,8 +112,9 @@ bool TrackReprojFactor::operator()(const double* intr_left,
   cv::Mat R_lw;
   cv::Rodrigues(rvec_lw, R_lw);
 
+  const cv::Mat t_lw = (cv::Mat_<double>(3, 1) << frame_tvec[0], frame_tvec[1], frame_tvec[2]);
   const cv::Mat X_w = (cv::Mat_<double>(3, 1) << point3d[0], point3d[1], point3d[2]);
-  const cv::Mat X_l = R_lw * X_w;
+  const cv::Mat X_l = R_lw * X_w + t_lw;
 
   cv::Mat X_cam = X_l;
   const double* intr = intr_left;
@@ -146,10 +148,10 @@ bool TrackReprojFactor::operator()(const double* intr_left,
 }
 
 // NumericDiff signature:
-//   intr_left [9], intr_right [9], extrinsics [6], frame_rvec [3], point3d [3]
+//   intr_left [9], intr_right [9], extrinsics [6], frame_rvec [3], frame_tvec [3], point3d [3]
 ceres::CostFunction* TrackReprojFactor::Create(const cv::Point2f& obs, bool is_left)
 {
-  return new ceres::NumericDiffCostFunction<TrackReprojFactor, ceres::CENTRAL, 2, 9, 9, 6, 3, 3>(
+  return new ceres::NumericDiffCostFunction<TrackReprojFactor, ceres::CENTRAL, 2, 9, 9, 6, 3, 3, 3>(
       new TrackReprojFactor(obs, is_left));
 }
 
