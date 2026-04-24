@@ -71,8 +71,11 @@ struct TrackBuildResult {
   std::vector<FrameState> frames;
   std::vector<std::string> frame_ids;
   std::vector<ImageInfo> images;
-  size_t num_tracks;
-  size_t num_observations;
+  size_t num_tracks = 0;
+  size_t num_observations = 0;
+  size_t num_conflicted_components = 0;
+  size_t num_conflict_observations_skipped = 0;
+  size_t num_components_skipped_due_to_conflict = 0;
 };
 
 // ─── Core functions ──────────────────────────────────────────────────────────

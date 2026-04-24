@@ -28,14 +28,14 @@ bool SelectBootstrapStartFrame(const std::vector<RawImagePair>& pairs,
                                double min_pair_inlier_ratio,
                                int& start_frame);
 
-bool SelectNextFrameFromPrevious(const std::vector<RawImagePair>& pairs,
-                                 const std::vector<ImageInfo>& images,
-                                 double max_match_score,
-                                 int min_pair_inliers,
-                                 double min_pair_inlier_ratio,
-                                 int previous_frame,
-                                 const std::vector<FrameState>& frames,
-                                 int& next_frame);
+bool SelectNextFrameFromInitialized(const std::vector<RawImagePair>& pairs,
+                                    const std::vector<ImageInfo>& images,
+                                    double max_match_score,
+                                    int min_pair_inliers,
+                                    double min_pair_inlier_ratio,
+                                    const std::vector<FrameState>& frames,
+                                    int& from_frame,
+                                    int& to_frame);
 
 }  // namespace stereocalib
 

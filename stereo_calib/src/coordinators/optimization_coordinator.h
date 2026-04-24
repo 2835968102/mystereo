@@ -29,15 +29,18 @@ struct OptimizationConfig {
   // BA optimization
   int max_iter = 200;
   int incremental_max_iter = 20;
+  int per_frame_max_iter = 5;
   int global_opt_interval = 5;
   double huber_delta = 1.0;
   bool fix_distortion = true;
+  bool enable_per_frame_correction = true;
   double aspect_ratio_prior_weight = 100.0;
   double baseline_prior_weight = 10.0;
   double tx_prior_weight = 0.0;
   double focal_prior_weight = 0.0;
   double focal_lower_scale = 0.5;
   double focal_upper_scale = 1.5;
+  bool reset_camera_params_each_ba_round = false;
   double max_reproj_error = 20.0;
   
   // Outlier rejection
@@ -50,10 +53,13 @@ struct OptimizationConfig {
 struct OptimizationResult {
   bool success = false;
   StereoCamera camera;
-  
+
   size_t num_tracks = 0;
   size_t num_observations = 0;
   size_t num_frames = 0;
+  size_t num_conflicted_components = 0;
+  size_t num_conflict_observations_skipped = 0;
+  size_t num_components_skipped_due_to_conflict = 0;
   
   double init_reproj_error = 0.0;
   double final_reproj_error = 0.0;

@@ -38,6 +38,11 @@ int OutlierRejectionService::RejectOutliers(OutlierRejectionState& state,
       if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames.size())) {
         continue;
       }
+      if (state.active_frames &&
+          (obs.frame_idx >= static_cast<int>(state.active_frames->size()) ||
+           !(*state.active_frames)[obs.frame_idx])) {
+        continue;
+      }
 
       const cv::Mat R_lw = camera_math::ToRotation(frames[obs.frame_idx].rvec);
       const cv::Mat t_lw = (cv::Mat_<double>(3, 1)

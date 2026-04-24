@@ -99,9 +99,9 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
 
   if (config.focal_prior_weight > 0.0) {
     ceres::CostFunction* focal_left = FocalPriorFactor::Create(
-        state.intrinsics_left, config.focal_prior_weight);
+        state.init_intrinsics_left, config.focal_prior_weight);
     ceres::CostFunction* focal_right = FocalPriorFactor::Create(
-        state.intrinsics_right, config.focal_prior_weight);
+        state.init_intrinsics_right, config.focal_prior_weight);
     problem.AddResidualBlock(focal_left, nullptr, state.intrinsics_left.data());
     problem.AddResidualBlock(focal_right, nullptr, state.intrinsics_right.data());
   }
@@ -116,6 +116,26 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     fixed_intrinsic_indices.push_back(6);  // p1
     fixed_intrinsic_indices.push_back(7);  // p2
     fixed_intrinsic_indices.push_back(8);  // k3
+  }
+
+  if (config.fix_camera_params) {
+    if (problem.HasParameterBlock(state.intrinsics_left.data())) {
+      problem.SetParameterBlockConstant(state.intrinsics_left.data());
+    }
+    if (problem.HasParameterBlock(state.intrinsics_right.data())) {
+      problem.SetParameterBlockConstant(state.intrinsics_right.data());
+    }
+    if (problem.HasParameterBlock(state.extrinsics.data())) {
+      problem.SetParameterBlockConstant(state.extrinsics.data());
+    }
+  }
+
+  if (config.fix_track_points) {
+    for (size_t ti = 0; ti < tracks.size(); ++ti) {
+      if (problem.HasParameterBlock(tracks[ti].point3d.data())) {
+        problem.SetParameterBlockConstant(tracks[ti].point3d.data());
+      }
+    }
   }
 
   // Set intrinsics manifold and bounds
@@ -136,17 +156,17 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     problem.SetParameterUpperBound(intr, 8, 1.0);
   };
 
-  if (problem.HasParameterBlock(state.intrinsics_left.data())) {
+  if (!config.fix_camera_params && problem.HasParameterBlock(state.intrinsics_left.data())) {
     problem.SetManifold(state.intrinsics_left.data(),
                         new ceres::SubsetManifold(9, fixed_intrinsic_indices));
     set_intrinsics_bounds(state.intrinsics_left.data(),
-                          state.intrinsics_left[0], state.intrinsics_left[1]);
+                          state.init_intrinsics_left[0], state.init_intrinsics_left[1]);
   }
-  if (problem.HasParameterBlock(state.intrinsics_right.data())) {
+  if (!config.fix_camera_params && problem.HasParameterBlock(state.intrinsics_right.data())) {
     problem.SetManifold(state.intrinsics_right.data(),
                         new ceres::SubsetManifold(9, fixed_intrinsic_indices));
     set_intrinsics_bounds(state.intrinsics_right.data(),
-                          state.intrinsics_right[0], state.intrinsics_right[1]);
+                          state.init_intrinsics_right[0], state.init_intrinsics_right[1]);
   }
 
   // Fix frame poses as needed

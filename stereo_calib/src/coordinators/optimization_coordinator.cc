@@ -6,6 +6,31 @@
 
 namespace stereocalib {
 
+namespace {
+
+void ResetCameraParamsToInitialization(BAState& state) {
+  state.intrinsics_left = state.init_intrinsics_left;
+  state.intrinsics_right = state.init_intrinsics_right;
+  state.extrinsics = state.init_extrinsics;
+}
+
+OutlierRejectionState BuildOutlierState(
+    const BAState& state,
+    std::vector<FrameState>& frames,
+    std::vector<Track>& tracks,
+    const std::vector<char>* active_frames) {
+  OutlierRejectionState outlier_state;
+  outlier_state.intrinsics_left = state.intrinsics_left;
+  outlier_state.intrinsics_right = state.intrinsics_right;
+  outlier_state.extrinsics = state.extrinsics;
+  outlier_state.frames = &frames;
+  outlier_state.tracks = &tracks;
+  outlier_state.active_frames = active_frames;
+  return outlier_state;
+}
+
+}  // namespace
+
 // ─── Constructors ───────────────────────────────────────────────────────────
 
 OptimizationCoordinator::OptimizationCoordinator(
@@ -122,6 +147,16 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   result.num_tracks = build_result.num_tracks;
   result.num_observations = build_result.num_observations;
   result.num_frames = frames.size();
+  result.num_conflicted_components = build_result.num_conflicted_components;
+  result.num_conflict_observations_skipped = build_result.num_conflict_observations_skipped;
+  result.num_components_skipped_due_to_conflict = build_result.num_components_skipped_due_to_conflict;
+
+  std::cout << "[Track Build] tracks=" << result.num_tracks
+            << ", observations=" << result.num_observations
+            << ", conflicted_components=" << result.num_conflicted_components
+            << ", conflict_obs_skipped=" << result.num_conflict_observations_skipped
+            << ", components_skipped=" << result.num_components_skipped_due_to_conflict
+            << std::endl;
 
   // ── Step 2: Apply ground truth frame poses ────────────────────────────────
   ApplyFramePoses(frames);
@@ -145,6 +180,8 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   BAState state;
   state.intrinsics_left = input.init_camera.left.ToVector();
   state.intrinsics_right = input.init_camera.right.ToVector();
+  state.init_intrinsics_left = state.intrinsics_left;
+  state.init_intrinsics_right = state.intrinsics_right;
   state.extrinsics = input.init_camera.extrinsics.ToVector();
   state.init_extrinsics = state.extrinsics;
   state.frames = &frames;
@@ -159,10 +196,17 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     return result;
   }
 
-  // ── Step 6: Active-set global BA after each registration ─────────────────
+  // ── Step 6: Active-set global BA on interval ─────────────────────────────
   const auto& reg_order = frame_init.registration_order;
   std::vector<char> active_frames(frames.size(), 0);
   active_frames[reg_order[0]] = 1;
+
+  const int global_opt_interval = std::max(1, config.global_opt_interval);
+  BAConfig local_ba_config = ToBAConfig(config, config.per_frame_max_iter);
+  local_ba_config.fix_camera_params = true;
+  local_ba_config.fix_track_points = false;
+  const BAConfig incremental_ba_config = ToBAConfig(config, config.incremental_max_iter);
+  const OutlierRejectionConfig outlier_config = ToOutlierConfig(config);
 
   bool have_rmse = false;
   int successful_registrations = 0;
@@ -175,46 +219,98 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     active_frames[frame_idx] = 1;
     successful_registrations++;
 
-    BAResult ba_result = ba_service_->RunBundleAdjustment(
-        state, active_frames, ToBAConfig(config, config.incremental_max_iter), -1);
-
-    if (ba_result.success) {
-      if (!have_rmse) {
-        result.init_reproj_error = ba_result.init_rmse;
-        have_rmse = true;
+    if (config.enable_per_frame_correction) {
+      BAResult local_ba_result = ba_service_->RunBundleAdjustment(
+          state, active_frames, local_ba_config, frame_idx);
+      if (local_ba_result.success) {
+        result.final_reproj_error = local_ba_result.final_rmse;
+        if (!have_rmse) {
+          result.init_reproj_error = local_ba_result.init_rmse;
+          have_rmse = true;
+        }
+        std::cout << "[Per-Frame Correction] registered_frames=" << (i + 1)
+                  << "/" << reg_order.size()
+                  << ", target_frame=" << frame_idx
+                  << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                  << local_ba_result.final_rmse << " px" << std::endl;
       }
-      result.final_reproj_error = ba_result.final_rmse;
-
-      std::cout << "[Active-Set Global BA] registered_frames=" << (i + 1)
-                << "/" << reg_order.size()
-                << ", reproj_rmse=" << std::fixed << std::setprecision(4)
-                << ba_result.final_rmse << " px" << std::endl;
-
-      std::string stage_name = "Global BA - Registered Frame " + std::to_string(i + 1);
-      StereoCamera current = BuildCamera(state);
-      eval_service_->PrintCurrentVsGroundTruth(stage_name, current);
-      eval_service_->RecordOptimizationStage(stage_name, ba_result.final_rmse, current);
     }
+
+    const bool is_interval_step = (successful_registrations % global_opt_interval) == 0;
+    const bool is_last_registration = (i + 1 == reg_order.size());
+    if (!is_interval_step && !is_last_registration) {
+      continue;
+    }
+
+    if (config.reset_camera_params_each_ba_round) {
+      ResetCameraParamsToInitialization(state);
+    }
+
+    BAResult ba_result = ba_service_->RunBundleAdjustment(
+        state, active_frames, incremental_ba_config, -1);
+    if (!ba_result.success) {
+      continue;
+    }
+
+    if (!have_rmse) {
+      result.init_reproj_error = ba_result.init_rmse;
+      have_rmse = true;
+    }
+
+    OutlierRejectionState interval_outlier_state =
+        BuildOutlierState(state, frames, tracks, &active_frames);
+    const OutlierRejectionResult rejection_result =
+        outlier_service_->RejectOutliersIterative(interval_outlier_state, outlier_config);
+    std::cout << "[Interval Outlier Rejection] registered_frames=" << (i + 1)
+              << "/" << reg_order.size()
+              << ", rejected=" << rejection_result.rejected_count
+              << ", rounds=" << rejection_result.total_rounds
+              << ", threshold=" << std::fixed << std::setprecision(4)
+              << outlier_config.threshold << " px" << std::endl;
+
+    if (rejection_result.rejected_count > 0) {
+      if (config.reset_camera_params_each_ba_round) {
+        ResetCameraParamsToInitialization(state);
+      }
+      BAResult refined_ba_result = ba_service_->RunBundleAdjustment(
+          state, active_frames, incremental_ba_config, -1);
+      if (refined_ba_result.success) {
+        ba_result = refined_ba_result;
+      }
+    }
+
+    result.final_reproj_error = ba_result.final_rmse;
+
+    std::cout << "[Interval Active-Set Global BA] registered_frames=" << (i + 1)
+              << "/" << reg_order.size()
+              << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+              << ba_result.final_rmse << " px" << std::endl;
+
+    std::string stage_name = "Interval Global BA - Registered Frame " + std::to_string(i + 1);
+    StereoCamera current = BuildCamera(state);
+    eval_service_->PrintCurrentVsGroundTruth(stage_name, current);
+    eval_service_->RecordOptimizationStage(stage_name, ba_result.final_rmse, current);
   }
 
   // ── Step 7: Post-pass outlier rejection + final global BA ────────────────
   if (!have_rmse) {
-    std::cerr << "No per-registration BA result available." << std::endl;
+    std::cerr << "No interval BA result available." << std::endl;
     return result;
   }
 
-  OutlierRejectionState outlier_state;
-  outlier_state.intrinsics_left = state.intrinsics_left;
-  outlier_state.intrinsics_right = state.intrinsics_right;
-  outlier_state.extrinsics = state.extrinsics;
-  outlier_state.frames = &frames;
-  outlier_state.tracks = &tracks;
+  if (config.reset_camera_params_each_ba_round) {
+    ResetCameraParamsToInitialization(state);
+  }
 
-  const int rejected = outlier_service_->RejectOutliers(
-      outlier_state, config.outlier_rejection_threshold);
-  std::cout << "[Post BA Outlier Rejection] rejected=" << rejected
+  OutlierRejectionState outlier_state =
+      BuildOutlierState(state, frames, tracks, &active_frames);
+  const OutlierRejectionResult final_rejection_result =
+      outlier_service_->RejectOutliersIterative(outlier_state, outlier_config);
+  std::cout << "[Post BA Outlier Rejection] rejected="
+            << final_rejection_result.rejected_count
+            << ", rounds=" << final_rejection_result.total_rounds
             << ", threshold=" << std::fixed << std::setprecision(4)
-            << config.outlier_rejection_threshold << " px" << std::endl;
+            << outlier_config.threshold << " px" << std::endl;
 
   BAResult final_ba_result = ba_service_->RunBundleAdjustment(
       state, active_frames, ToBAConfig(config, config.max_iter), -1);

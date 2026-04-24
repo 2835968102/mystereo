@@ -23,10 +23,11 @@ struct OutlierRejectionState {
   std::vector<double> intrinsics_left;
   std::vector<double> intrinsics_right;
   std::vector<double> extrinsics;
-  
+
   // Frame poses and tracks (modified by rejection)
   std::vector<FrameState>* frames = nullptr;
   std::vector<Track>* tracks = nullptr;
+  const std::vector<char>* active_frames = nullptr;
 };
 
 // ─── Outlier Rejection Result ───────────────────────────────────────────────

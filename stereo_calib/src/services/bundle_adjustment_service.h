@@ -16,6 +16,8 @@ struct BAConfig {
   int max_iterations = 200;
   double huber_delta = 1.0;
   bool fix_distortion = true;
+  bool fix_camera_params = false;
+  bool fix_track_points = false;
   double aspect_ratio_prior_weight = 100.0;
   double baseline_prior_weight = 10.0;
   double tx_prior_weight = 0.0;
@@ -30,7 +32,9 @@ struct BAState {
   // Intrinsics: [fx, fy, cx, cy, k1, k2, p1, p2, k3]
   std::vector<double> intrinsics_left;
   std::vector<double> intrinsics_right;
-  
+  std::vector<double> init_intrinsics_left;
+  std::vector<double> init_intrinsics_right;
+
   // Extrinsics: [r1, r2, r3, t1, t2, t3]
   std::vector<double> extrinsics;
   std::vector<double> init_extrinsics;  // For baseline prior

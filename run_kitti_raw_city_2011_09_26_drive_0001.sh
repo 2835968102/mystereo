@@ -20,6 +20,10 @@ CONF_THRESH=0.2
 NMS_DIST=15
 NN_THRESH=1
 USE_CUDA=0
+FORCE_REMATCH=0
+RESET_CAMERA_PARAMS_EACH_BA_ROUND=0
+ENABLE_PER_FRAME_CORRECTION=1
+PER_FRAME_MAX_ITER=5
 
 MAX_ITER=40
 INCREMENTAL_MAX_ITER=30
@@ -33,6 +37,7 @@ TX_PRIOR=20
 FOCAL_PRIOR=1
 FOCAL_LOWER_SCALE=0.2
 FOCAL_UPPER_SCALE=3.0
+OUTLIER_THRESHOLD=2.0
 
 SCRIPT_START_TIME=$(date +%s)
 
@@ -75,6 +80,11 @@ usage() {
   --nn_thresh <float>     SuperPoint 描述子匹配阈值
   --cuda                  使用 CUDA 跑 SuperPoint
   --cpu                   强制使用 CPU 跑 SuperPoint
+  --force_rematch         忽略已有匹配结果并重新运行 SuperPoint
+  --reset_camera_params_each_ba_round  每轮 BA 前重置相机参数到初始值
+  --disable_per_frame_correction       关闭逐帧本地校正
+  --per_frame_max_iter <int>           逐帧本地校正最大迭代次数
+  --outlier_threshold <float>          离群点剔除像素阈值
   -h, --help              显示帮助
 EOF
 }
@@ -140,6 +150,26 @@ while [[ $# -gt 0 ]]; do
         --cpu)
             USE_CUDA=0
             shift
+            ;;
+        --force_rematch)
+            FORCE_REMATCH=1
+            shift
+            ;;
+        --reset_camera_params_each_ba_round)
+            RESET_CAMERA_PARAMS_EACH_BA_ROUND=1
+            shift
+            ;;
+        --disable_per_frame_correction)
+            ENABLE_PER_FRAME_CORRECTION=0
+            shift
+            ;;
+        --per_frame_max_iter)
+            PER_FRAME_MAX_ITER="$2"
+            shift 2
+            ;;
+        --outlier_threshold)
+            OUTLIER_THRESHOLD="$2"
+            shift 2
             ;;
         -h|--help)
             usage
@@ -209,23 +239,38 @@ echo "参数标签: $PARAM_TAG"
 echo "匹配输出: $OUTPUT_MATCH_JSON"
 echo "BA 输出: $OUTPUT_BA_JSON"
 echo "图片输出: $OUTPUT_PNG"
+echo "force rematch: $FORCE_REMATCH"
+echo "reset camera params each BA round: $RESET_CAMERA_PARAMS_EACH_BA_ROUND"
+echo "enable per-frame correction: $ENABLE_PER_FRAME_CORRECTION"
+echo "per-frame max iter: $PER_FRAME_MAX_ITER"
+echo "outlier threshold: $OUTLIER_THRESHOLD"
 echo "========================================"
 
 DATASET_START_TIME=$(date +%s)
 
-MATCH_CMD=(
-    conda run --no-capture-output -n stereo-calib-vis python "$SCRIPT_PATH"
-    --left_img_dir "$LEFT_IMG_DIR"
-    --right_img_dir "$RIGHT_IMG_DIR"
-    --output "$OUTPUT_MATCH_JSON"
-    --conf_thresh "$CONF_THRESH"
-    --nms_dist "$NMS_DIST"
-    --nn_thresh "$NN_THRESH"
-)
-if [[ "$USE_CUDA" -eq 1 ]]; then
-    MATCH_CMD+=(--cuda)
+if [[ -f "$OUTPUT_MATCH_JSON" && "$FORCE_REMATCH" -eq 0 ]]; then
+    echo "检测到已有匹配结果，跳过 SuperPoint: $OUTPUT_MATCH_JSON"
+else
+    if [[ "$FORCE_REMATCH" -eq 1 && -f "$OUTPUT_MATCH_JSON" ]]; then
+        echo "强制重新运行 SuperPoint，并覆盖已有匹配结果: $OUTPUT_MATCH_JSON"
+    else
+        echo "未找到匹配结果，开始运行 SuperPoint"
+    fi
+
+    MATCH_CMD=(
+        conda run --no-capture-output -n stereo-calib-vis python "$SCRIPT_PATH"
+        --left_img_dir "$LEFT_IMG_DIR"
+        --right_img_dir "$RIGHT_IMG_DIR"
+        --output "$OUTPUT_MATCH_JSON"
+        --conf_thresh "$CONF_THRESH"
+        --nms_dist "$NMS_DIST"
+        --nn_thresh "$NN_THRESH"
+    )
+    if [[ "$USE_CUDA" -eq 1 ]]; then
+        MATCH_CMD+=(--cuda)
+    fi
+    "${MATCH_CMD[@]}"
 fi
-"${MATCH_CMD[@]}"
 
 BA_CMD=(
     "$BA_BIN"
@@ -240,13 +285,21 @@ BA_CMD=(
     --focal_upper_scale "$FOCAL_UPPER_SCALE"
     --max_iter "$MAX_ITER"
     --incremental_max_iter "$INCREMENTAL_MAX_ITER"
+    --per_frame_max_iter "$PER_FRAME_MAX_ITER"
     --global_opt_interval "$GLOBAL_OPT_INTERVAL"
+    --outlier_threshold "$OUTLIER_THRESHOLD"
     --min_pair_inliers "$MIN_PAIR_INLIERS"
     --max_score "$MAX_SCORE"
     --min_track_len "$MIN_TRACK_LEN"
 )
 if [[ "$FIX_DISTORTION" -eq 1 ]]; then
     BA_CMD+=(--fix_distortion)
+fi
+if [[ "$RESET_CAMERA_PARAMS_EACH_BA_ROUND" -eq 1 ]]; then
+    BA_CMD+=(--reset_camera_params_each_ba_round)
+fi
+if [[ "$ENABLE_PER_FRAME_CORRECTION" -eq 1 ]]; then
+    BA_CMD+=(--enable_per_frame_correction)
 fi
 "${BA_CMD[@]}"
 

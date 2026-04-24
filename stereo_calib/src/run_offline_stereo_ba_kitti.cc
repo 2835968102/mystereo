@@ -130,11 +130,12 @@ void PrintUsage()
             << "[--gt_param_file gt_params.{txt|json}] "
             << "[--frame_poses_file camera_poses.json] "
             << "[--init_param_file example_init_params.txt] "
-            << "[--max_iter 200] [--incremental_max_iter 20] [--global_opt_interval 5] "
-            << "[--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
+            << "[--max_iter 200] [--incremental_max_iter 20] [--per_frame_max_iter 5] [--global_opt_interval 5] "
+            << "[--enable_per_frame_correction] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
             << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
             << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
             << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
+            << "[--reset_camera_params_each_ba_round] "
             << "[--max_reproj_error 20.0] [--outlier_threshold 2.0] [--outlier_rounds 3]"
             << std::endl;
 }
@@ -185,6 +186,8 @@ int main(int argc, char** argv)
       config.max_iter = std::stoi(argv[++i]);
     } else if (arg == "--incremental_max_iter" && i + 1 < argc) {
       config.incremental_max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--per_frame_max_iter" && i + 1 < argc) {
+      config.per_frame_max_iter = std::stoi(argv[++i]);
     } else if (arg == "--global_opt_interval" && i + 1 < argc) {
       config.global_opt_interval = std::stoi(argv[++i]);
     } else if (arg == "--min_track_len" && i + 1 < argc) {
@@ -213,6 +216,10 @@ int main(int argc, char** argv)
       config.focal_lower_scale = std::stod(argv[++i]);
     } else if (arg == "--focal_upper_scale" && i + 1 < argc) {
       config.focal_upper_scale = std::stod(argv[++i]);
+    } else if (arg == "--enable_per_frame_correction") {
+      config.enable_per_frame_correction = true;
+    } else if (arg == "--reset_camera_params_each_ba_round") {
+      config.reset_camera_params_each_ba_round = true;
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {
       config.outlier_rejection_threshold = std::stod(argv[++i]);
     } else if (arg == "--outlier_rounds" && i + 1 < argc) {
@@ -279,6 +286,9 @@ int main(int argc, char** argv)
   }
   std::cout << "Loaded " << input.pairs.size() << " pair records, "
             << raw_matches << " raw matches." << std::endl;
+  std::cout << "Experiment reset_camera_params_each_ba_round: "
+            << (config.reset_camera_params_each_ba_round ? "enabled" : "disabled")
+            << std::endl;
 
   const int kMinMatchesPerPair = 50;
   std::vector<RawImagePair> filtered_pairs;
@@ -360,10 +370,16 @@ int main(int argc, char** argv)
   out["num_tracks"] = result.num_tracks;
   out["num_observations"] = result.num_observations;
   out["num_frames"] = result.num_frames;
+  out["num_conflicted_components"] = result.num_conflicted_components;
+  out["num_conflict_observations_skipped"] = result.num_conflict_observations_skipped;
+  out["num_components_skipped_due_to_conflict"] = result.num_components_skipped_due_to_conflict;
   out["init_reproj_error"] = result.init_reproj_error;
   out["final_reproj_error"] = result.final_reproj_error;
   out["optimization_history"] = result.optimization_history;
   out["summary"] = BuildSummaryFromHistory(result.optimization_history);
+  out["experiment"] = {
+      {"reset_camera_params_each_ba_round", config.reset_camera_params_each_ba_round},
+  };
 
   if (has_gt) {
     out["gt_source"] = gt_source;

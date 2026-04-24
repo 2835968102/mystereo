@@ -480,7 +480,8 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
   for (std::unordered_map<int, std::vector<int> >::const_iterator it = comps.begin(); it != comps.end(); ++it) {
     const std::vector<int>& comp = it->second;
     Track track;
-    std::set<std::pair<int, bool> > seen;
+    std::map<std::pair<int, bool>, size_t> slot_counts;
+    size_t valid_obs_in_component = 0;
 
     for (size_t j = 0; j < comp.size(); ++j) {
       const NodeInfo& node = nodes[comp[j]];
@@ -488,12 +489,36 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
       if (!img.valid || img.frame_idx < 0) {
         continue;
       }
-
+      ++valid_obs_in_component;
       const std::pair<int, bool> key(img.frame_idx, img.is_left);
-      if (seen.find(key) != seen.end()) {
+      slot_counts[key]++;
+    }
+
+    bool has_conflict = false;
+    size_t unique_slots = 0;
+    for (std::map<std::pair<int, bool>, size_t>::const_iterator slot_it = slot_counts.begin();
+         slot_it != slot_counts.end(); ++slot_it) {
+      unique_slots++;
+      if (slot_it->second > 1) {
+        has_conflict = true;
+      }
+    }
+
+    if (has_conflict) {
+      result.num_conflicted_components++;
+      result.num_components_skipped_due_to_conflict++;
+      if (valid_obs_in_component > unique_slots) {
+        result.num_conflict_observations_skipped += (valid_obs_in_component - unique_slots);
+      }
+      continue;
+    }
+
+    for (size_t j = 0; j < comp.size(); ++j) {
+      const NodeInfo& node = nodes[comp[j]];
+      const ImageInfo& img = images[node.image_idx];
+      if (!img.valid || img.frame_idx < 0) {
         continue;
       }
-      seen.insert(key);
 
       TrackObservation obs;
       obs.frame_idx = img.frame_idx;
@@ -630,17 +655,18 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
   std::vector<cv::Point2f> pts_to;
 
   while (registered < frames.size()) {
-    const int best_from = registration_order.back();
+    int best_from = -1;
     int best_to = -1;
 
-    if (!SelectNextFrameFromPrevious(pairs, images, max_match_score,
-                                     min_pair_inliers, min_pair_inlier_ratio,
-                                     best_from, frames, best_to)) {
+    if (!SelectNextFrameFromInitialized(pairs, images, max_match_score,
+                                        min_pair_inliers, min_pair_inlier_ratio,
+                                        frames, best_from, best_to)) {
+      const int fallback_from = registration_order.empty() ? start_frame : registration_order.back();
       for (size_t i = 0; i < frames.size(); ++i) {
         if (!frames[i].initialized) {
           frames[i].initialized = true;
-          frames[i].rvec = frames[best_from].rvec;
-          frames[i].tvec = frames[best_from].tvec;
+          frames[i].rvec = frames[fallback_from].rvec;
+          frames[i].tvec = frames[fallback_from].tvec;
           registration_order.push_back(static_cast<int>(i));
           registered++;
         }
@@ -684,18 +710,12 @@ bool InitializeFrameRotations(const StereoCamera& init_camera,
           cv::Mat rvec_to;
           cv::Rodrigues(R_to, rvec_to);
 
-          const cv::Mat t_from = ToColumnMat(frames[best_from].tvec);
-          const cv::Mat t_to = t_from + rel_tvec;
           frames[best_to].rvec = {
               rvec_to.at<double>(0, 0),
               rvec_to.at<double>(1, 0),
               rvec_to.at<double>(2, 0),
           };
-          frames[best_to].tvec = {
-              t_to.at<double>(0, 0),
-              t_to.at<double>(1, 0),
-              t_to.at<double>(2, 0),
-          };
+          frames[best_to].tvec = frames[best_from].tvec;
           pose_initialized = true;
         }
       }

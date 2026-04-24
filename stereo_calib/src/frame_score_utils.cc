@@ -139,14 +139,14 @@ bool SelectBootstrapStartFrame(const std::vector<RawImagePair>& pairs,
   return true;
 }
 
-bool SelectNextFrameFromPrevious(const std::vector<RawImagePair>& pairs,
-                                 const std::vector<ImageInfo>& images,
-                                 double max_match_score,
-                                 int min_pair_inliers,
-                                 double min_pair_inlier_ratio,
-                                 int previous_frame,
-                                 const std::vector<FrameState>& frames,
-                                 int& next_frame) {
+bool SelectNextFrameFromInitialized(const std::vector<RawImagePair>& pairs,
+                                    const std::vector<ImageInfo>& images,
+                                    double max_match_score,
+                                    int min_pair_inliers,
+                                    double min_pair_inlier_ratio,
+                                    const std::vector<FrameState>& frames,
+                                    int& from_frame,
+                                    int& to_frame) {
   bool found = false;
   PairQuality best_quality;
 
@@ -157,26 +157,21 @@ bool SelectNextFrameFromPrevious(const std::vector<RawImagePair>& pairs,
       continue;
     }
 
-    int candidate_frame = -1;
-    if (quality.frame_a == previous_frame) {
-      candidate_frame = quality.frame_b;
-    } else if (quality.frame_b == previous_frame) {
-      candidate_frame = quality.frame_a;
-    } else {
-      continue;
-    }
+    const bool frame_a_initialized = quality.frame_a >= 0 &&
+        quality.frame_a < static_cast<int>(frames.size()) &&
+        frames[quality.frame_a].initialized;
+    const bool frame_b_initialized = quality.frame_b >= 0 &&
+        quality.frame_b < static_cast<int>(frames.size()) &&
+        frames[quality.frame_b].initialized;
 
-    if (candidate_frame < 0 || candidate_frame >= static_cast<int>(frames.size())) {
-      continue;
-    }
-    if (frames[candidate_frame].initialized) {
+    if (frame_a_initialized == frame_b_initialized) {
       continue;
     }
 
     PairQuality candidate_quality = quality;
-    if (candidate_quality.frame_a != previous_frame) {
-      candidate_quality.frame_a = previous_frame;
-      candidate_quality.frame_b = candidate_frame;
+    if (!frame_a_initialized) {
+      candidate_quality.frame_a = quality.frame_b;
+      candidate_quality.frame_b = quality.frame_a;
     }
 
     if (!found || IsBetterPair(candidate_quality, best_quality)) {
@@ -189,7 +184,8 @@ bool SelectNextFrameFromPrevious(const std::vector<RawImagePair>& pairs,
     return false;
   }
 
-  next_frame = best_quality.frame_b;
+  from_frame = best_quality.frame_a;
+  to_frame = best_quality.frame_b;
   return true;
 }
 
