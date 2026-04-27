@@ -2,10 +2,10 @@
 # Format: key=value
 
 # Left intrinsics
-left_fx=721.5377
-left_fy=721.5377
-left_cx=609.5593
-left_cy=172.854
+left_fx=741.5377
+left_fy=701.5377
+left_cx=624.5593
+left_cy=160.854
 left_k1=0.0
 left_k2=0.0
 left_p1=0.0
@@ -13,10 +13,10 @@ left_p2=0.0
 left_k3=0.0
 
 # Right intrinsics
-right_fx=721.5377
-right_fy=721.5377
-right_cx=609.5593
-right_cy=172.854
+right_fx=736.5377
+right_fy=706.5377
+right_cx=597.5593
+right_cy=182.854
 right_k1=0.0
 right_k2=0.0
 right_p1=0.0
@@ -34,6 +34,6 @@ R20=0.0
 R21=0.0
 R22=1.0
 
-tx=-0.5371505882506209
-ty=0.0
-tz=0.0
+tx=-0.5251505882506209
+ty=0.005
+tz=-0.004

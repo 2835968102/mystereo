@@ -133,7 +133,7 @@ void PrintUsage()
             << "[--max_iter 200] [--incremental_max_iter 20] [--per_frame_max_iter 5] [--global_opt_interval 5] "
             << "[--enable_per_frame_correction] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
             << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
-            << "[--fix_distortion] [--aspect_ratio_prior 1.0] "
+            << "[--fix_distortion] [KITTI default: optimize principal point after a fixed-principal-point final BA pass] [--aspect_ratio_prior 1.0] "
             << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
             << "[--reset_camera_params_each_ba_round] "
             << "[--max_reproj_error 20.0] [--outlier_threshold 2.0] [--outlier_rounds 3]"
@@ -169,6 +169,8 @@ int main(int argc, char** argv)
   const std::string kDefaultPosesPathB = "../data/camera_poses.json";
 
   OptimizationConfig config;
+  config.fix_principal_point = false;
+  config.enable_two_stage_final_global_ba = true;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];

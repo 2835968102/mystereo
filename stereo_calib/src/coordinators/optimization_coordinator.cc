@@ -70,6 +70,7 @@ BAConfig OptimizationCoordinator::ToBAConfig(
   bc.max_iterations = max_iter;
   bc.huber_delta = config.huber_delta;
   bc.fix_distortion = config.fix_distortion;
+  bc.fix_principal_point = config.fix_principal_point;
   bc.aspect_ratio_prior_weight = config.aspect_ratio_prior_weight;
   bc.baseline_prior_weight = config.baseline_prior_weight;
   bc.tx_prior_weight = config.tx_prior_weight;
@@ -205,7 +206,10 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   BAConfig local_ba_config = ToBAConfig(config, config.per_frame_max_iter);
   local_ba_config.fix_camera_params = true;
   local_ba_config.fix_track_points = false;
-  const BAConfig incremental_ba_config = ToBAConfig(config, config.incremental_max_iter);
+  BAConfig incremental_ba_config = ToBAConfig(config, config.incremental_max_iter);
+  if (config.enable_two_stage_final_global_ba) {
+    incremental_ba_config.fix_principal_point = true;
+  }
   const OutlierRejectionConfig outlier_config = ToOutlierConfig(config);
 
   bool have_rmse = false;
@@ -312,22 +316,70 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
             << ", threshold=" << std::fixed << std::setprecision(4)
             << outlier_config.threshold << " px" << std::endl;
 
-  BAResult final_ba_result = ba_service_->RunBundleAdjustment(
-      state, active_frames, ToBAConfig(config, config.max_iter), -1);
-  if (final_ba_result.success) {
-    result.final_reproj_error = final_ba_result.final_rmse;
-    std::cout << "[Final Global BA] registered_frames=" << (successful_registrations + 1)
-              << "/" << reg_order.size()
-              << ", reproj_rmse=" << std::fixed << std::setprecision(4)
-              << final_ba_result.final_rmse << " px" << std::endl;
+  BAConfig final_ba_config = ToBAConfig(config, config.max_iter);
+  BAResult final_ba_result;
+  if (config.enable_two_stage_final_global_ba) {
+    BAConfig fixed_principal_point_config = final_ba_config;
+    fixed_principal_point_config.fix_principal_point = true;
+    BAResult fixed_principal_point_result = ba_service_->RunBundleAdjustment(
+        state, active_frames, fixed_principal_point_config, -1);
+    if (fixed_principal_point_result.success) {
+      result.final_reproj_error = fixed_principal_point_result.final_rmse;
+      std::cout << "[Final Global BA (Fixed Principal Point)] registered_frames="
+                << (successful_registrations + 1)
+                << "/" << reg_order.size()
+                << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                << fixed_principal_point_result.final_rmse << " px" << std::endl;
 
-    StereoCamera current = BuildCamera(state);
-    eval_service_->PrintCurrentVsGroundTruth("Final Global BA", current);
-    eval_service_->RecordOptimizationStage("Final Global BA",
-                                           final_ba_result.final_rmse,
-                                           current);
+      StereoCamera current = BuildCamera(state);
+      eval_service_->PrintCurrentVsGroundTruth("Final Global BA (Fixed Principal Point)", current);
+      eval_service_->RecordOptimizationStage("Final Global BA (Fixed Principal Point)",
+                                             fixed_principal_point_result.final_rmse,
+                                             current);
+
+      BAConfig free_principal_point_config = final_ba_config;
+      free_principal_point_config.fix_principal_point = false;
+      final_ba_result = ba_service_->RunBundleAdjustment(
+          state, active_frames, free_principal_point_config, -1);
+      if (final_ba_result.success) {
+        result.final_reproj_error = final_ba_result.final_rmse;
+        std::cout << "[Final Global BA (Free Principal Point)] registered_frames="
+                  << (successful_registrations + 1)
+                  << "/" << reg_order.size()
+                  << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                  << final_ba_result.final_rmse << " px" << std::endl;
+
+        current = BuildCamera(state);
+        eval_service_->PrintCurrentVsGroundTruth("Final Global BA (Free Principal Point)", current);
+        eval_service_->RecordOptimizationStage("Final Global BA (Free Principal Point)",
+                                               final_ba_result.final_rmse,
+                                               current);
+      } else {
+        std::cerr << "Final global BA with free principal point failed after fixed-principal-point refinement." << std::endl;
+        final_ba_result = fixed_principal_point_result;
+      }
+    } else {
+      std::cerr << "Final global BA with fixed principal point failed after outlier rejection." << std::endl;
+      final_ba_result = fixed_principal_point_result;
+    }
   } else {
-    std::cerr << "Final global BA failed after outlier rejection." << std::endl;
+    final_ba_result = ba_service_->RunBundleAdjustment(
+        state, active_frames, final_ba_config, -1);
+    if (final_ba_result.success) {
+      result.final_reproj_error = final_ba_result.final_rmse;
+      std::cout << "[Final Global BA] registered_frames=" << (successful_registrations + 1)
+                << "/" << reg_order.size()
+                << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                << final_ba_result.final_rmse << " px" << std::endl;
+
+      StereoCamera current = BuildCamera(state);
+      eval_service_->PrintCurrentVsGroundTruth("Final Global BA", current);
+      eval_service_->RecordOptimizationStage("Final Global BA",
+                                             final_ba_result.final_rmse,
+                                             current);
+    } else {
+      std::cerr << "Final global BA failed after outlier rejection." << std::endl;
+    }
   }
 
   // ── Step 8: Finalization ───────────────────────────────────────────────────

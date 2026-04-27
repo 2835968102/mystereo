@@ -33,6 +33,7 @@ struct OptimizationConfig {
   int global_opt_interval = 5;
   double huber_delta = 1.0;
   bool fix_distortion = true;
+  bool fix_principal_point = true;
   bool enable_per_frame_correction = true;
   double aspect_ratio_prior_weight = 100.0;
   double baseline_prior_weight = 10.0;
@@ -41,6 +42,7 @@ struct OptimizationConfig {
   double focal_lower_scale = 0.5;
   double focal_upper_scale = 1.5;
   bool reset_camera_params_each_ba_round = false;
+  bool enable_two_stage_final_global_ba = false;
   double max_reproj_error = 20.0;
   
   // Outlier rejection

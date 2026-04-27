@@ -16,6 +16,7 @@ struct BAConfig {
   int max_iterations = 200;
   double huber_delta = 1.0;
   bool fix_distortion = true;
+  bool fix_principal_point = true;
   bool fix_camera_params = false;
   bool fix_track_points = false;
   double aspect_ratio_prior_weight = 100.0;

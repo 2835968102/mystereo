@@ -106,10 +106,12 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     problem.AddResidualBlock(focal_right, nullptr, state.intrinsics_right.data());
   }
 
-  // Fix intrinsic parameters (cx, cy, and optionally distortion)
+  // Fix selected intrinsic parameters.
   std::vector<int> fixed_intrinsic_indices;
-  fixed_intrinsic_indices.push_back(2);  // cx
-  fixed_intrinsic_indices.push_back(3);  // cy
+  if (config.fix_principal_point) {
+    fixed_intrinsic_indices.push_back(2);  // cx
+    fixed_intrinsic_indices.push_back(3);  // cy
+  }
   if (config.fix_distortion) {
     fixed_intrinsic_indices.push_back(4);  // k1
     fixed_intrinsic_indices.push_back(5);  // k2
