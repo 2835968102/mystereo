@@ -1,0 +1,84 @@
+# 这个批量实验等价于旧版 run_all_test.sh。
+# 以后修改场景、阈值或 BA 参数，优先改这个配置文件。
+name: panoramic_threshold_sweep
+
+# 运行实验前先编译 C++ BA 可执行文件。
+build:
+  enabled: true
+  source_dir: stereo_calib
+  build_dir: build
+
+# Python 命令通过 conda 环境执行，确保匹配、画图和 run_pipeline.py
+# 使用同一套依赖。
+runner:
+  conda_env: stereo-calib-vis
+  # 可选：root 的 PATH 里找不到 conda 时，可以在这里显式指定。
+  # 不填时会自动尝试 CONDA_BIN、PATH 和常见安装位置。
+  # conda_executable: /home/hello/miniconda3/bin/conda
+  python_executable: python
+  pipeline_script: run_pipeline.py
+
+# 所有 runs 共享的 run_pipeline.py 参数。布尔值 true 会转换成命令行开关，
+# 例如 fix_distortion: true 会变成 --fix_distortion。
+defaults:
+  pipeline_args:
+    # --max_iter：最终全局 BA 的最大迭代次数。
+    max_iter: 40
+
+    # --incremental_max_iter：增量阶段每次全局 BA 的最大迭代次数。
+    incremental_max_iter: 1
+
+    # --global_opt_interval：每注册多少帧触发一次增量全局 BA。
+    # 场景通常只有二三十帧，设为 50 时历史图基本只会有 2 个点。
+    # 设为 5 可以得到更密的 1px/2px/3px 优化过程曲线。
+    global_opt_interval: 5
+
+    # --min_pair_inliers：图像对通过几何筛选所需的最少内点数。
+    min_pair_inliers: 15
+
+    # --max_score：匹配点最大得分阈值；越小过滤越严格。
+    max_score: 0.5
+
+    # --min_track_len：有效 track 至少需要覆盖的观测数量。
+    min_track_len: 3
+
+    # --fix_distortion：固定畸变参数，不在 BA 中优化畸变。
+    fix_distortion: true
+
+    # --skip_match：跳过 SuperPoint 匹配，复用已有 matches JSON。
+    skip_match: true
+
+# 每个 scene 都会执行下面 runs 中定义的所有实验。
+scenes:
+  - panoramic_01
+  - panoramic_02
+  - panoramic_03
+  - panoramic_04
+  - panoramic_05
+
+# 单个 run 中的 pipeline_args 会覆盖 defaults.pipeline_args。
+# 这里专门做 3px/2px/1px 阈值对比；每个 run 会写入对应的结果文件。
+runs:
+  - label: le_3px
+    pipeline_args:
+      pixel_tag: 3px
+
+  - label: le_2px
+    pipeline_args:
+      pixel_tag: 2px
+
+  - label: le_1px
+    pipeline_args:
+      pixel_tag: 1px
+
+# 每个 scene 的所有 runs 结束后执行的可选后处理。
+# {scene} 会被替换成当前场景名。
+postprocess:
+  threshold_comparison:
+    enabled: true
+    script: stereo_calib/scripts/plot_ba_threshold_comparison.py
+    inputs:
+      input_3px: stereo_calib/result/ba_results/{scene}_ba_result_le_3px.json
+      input_2px: stereo_calib/result/ba_results/{scene}_ba_result_le_2px.json
+      input_1px: stereo_calib/result/ba_results/{scene}_ba_result_le_1px.json
+    output: stereo_calib/result/{scene}_ba_threshold_comparison.png

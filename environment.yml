@@ -6,4 +6,6 @@ dependencies:
   - python=3.10
   - matplotlib>=3.6
   - numpy>=1.23
+  # 提供 run_experiment.py 中 import yaml 需要的模块。
+  - pyyaml>=6.0
   - pip

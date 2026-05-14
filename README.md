@@ -134,6 +134,23 @@ python run_pipeline.py \
     --min_track_len 7
 ```
 
+### 批量实验
+
+批量实验推荐改 YAML 配置，而不是直接改 shell 脚本：
+
+```bash
+# 运行默认 panoramic 阈值对比实验
+bash run_all_test.sh
+
+# 只打印将要执行的命令，不真正运行
+bash run_all_test.sh --dry-run --no-build --scene panoramic_01
+
+# 直接指定其他实验配置
+python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
+```
+
+默认配置在 `configs/experiments/panoramic_threshold_sweep.yaml`。场景列表、阈值实验、BA 参数、是否跳过匹配、后处理画图都在这个文件里维护。
+
 ### 路径约定
 
 `run_pipeline.py` 会根据 `--dataset_mode` 和 `--scene` 自动生成输入/输出路径。

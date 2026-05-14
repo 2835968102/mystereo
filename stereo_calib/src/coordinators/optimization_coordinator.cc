@@ -237,6 +237,12 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
                   << ", target_frame=" << frame_idx
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                   << local_ba_result.final_rmse << " px" << std::endl;
+
+        StereoCamera current = BuildCamera(state);
+        eval_service_->RecordOptimizationStage(
+            "Per-Frame Correction - Registered Frame " + std::to_string(i + 1),
+            local_ba_result.final_rmse,
+            current);
       }
     }
 
