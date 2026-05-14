@@ -12,7 +12,10 @@
 
 ```
 .
-├── run_pipeline.py                   # 全流程一键运行脚本（推荐入口）
+├── run_pipeline.py                   # 单次全流程 CLI 入口
+├── run_experiment.py                 # YAML 驱动的批量实验入口
+├── configs/experiments/              # 批量实验配置
+├── stereo_calib_py/                  # Python pipeline 复用逻辑
 ├── environment.yml                   # Conda 可视化环境（stereo-calib-vis）
 ├── blender-file/
 │   └── stereo_panoramic_01/          # 仿真图像数据目录（含 camera_params_0000.json）
@@ -33,7 +36,7 @@
     │   ├── stereo_factors.h/cc        # 所有 Ceres 代价函数
     │   ├── track_builder.h/cc         # Track 构建 + 帧/点初始化
     │   ├── stereo_optimizer.h/cc      # 单对 Ceres BA 优化器
-    │   ├── offline_stereo_ba.h/cc     # 增量式多帧 BA 协调者
+    │   ├── offline_ba_common.h/cc     # 离线 BA 入口共享辅助逻辑
     │   ├── run_stereo_calib.cc        # 单对 BA 入口程序
     │   └── run_offline_stereo_ba.cc   # 增量式多帧 BA 入口程序
     ├── data/
@@ -76,6 +79,7 @@ cmake ../stereo_calib && make -j$(nproc)
 | 可执行文件 | 用途 |
 |-----------|------|
 | `run_offline_stereo_ba` | 增量式多帧 BA 标定（**主要使用**） |
+| `run_offline_stereo_ba_kitti` | KITTI RAW 专用增量式 BA 标定 |
 | `run_stereo_calib` | 单对 BA 标定 |
 
 ---
@@ -95,15 +99,18 @@ python run_pipeline.py
 # 指定 project 数据集其他场景
 python run_pipeline.py --dataset_mode project --scene panoramic_02
 
-# 运行 KITTI Stereo 2015 training 的单个 scene（方案 B：使用 _10 和 _11 两帧，并自动与官方标定值对比）
+# 运行 KITTI RAW 单帧模式，并自动与官方标定值对比
 python run_pipeline.py \
     --dataset_mode kitti2015 \
-    --scene 000000 \
-    --kitti_root_dir /path/to/data_scene_flow/training
+    --scene 0000000000 \
+    --kitti_root_dir /path/to/kitti/raw/drive/root
 
-# 说明：除 image_2/image_3 外，还需要存在 sibling 标定目录
-# /path/to/data_scene_flow_calib/training/calib_cam_to_cam/000000.txt
+# 说明：需要能从 kitti_root_dir 推导出 sibling 标定目录
+# .../2011_09_26_calib/2011_09_26/calib_cam_to_cam.txt
 # 程序会自动转换为仓库内部 GT JSON，并通过 --gt_param_file 接入 BA 对比
+
+# 运行 KITTI RAW 连续帧配置（等价替代旧 run_kitti_raw_city_2011_09_26_drive_0001.sh）
+python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml
 
 # 使用 CUDA 加速特征匹配
 python run_pipeline.py --cuda
@@ -140,16 +147,17 @@ python run_pipeline.py \
 
 ```bash
 # 运行默认 panoramic 阈值对比实验
-bash run_all_test.sh
+python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
 
 # 只打印将要执行的命令，不真正运行
-bash run_all_test.sh --dry-run --no-build --scene panoramic_01
+python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml \
+    --dry-run --no-build --scene panoramic_01
 
-# 直接指定其他实验配置
-python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
+# 运行 KITTI RAW 连续帧实验
+python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml
 ```
 
-默认配置在 `configs/experiments/panoramic_threshold_sweep.yaml`。场景列表、阈值实验、BA 参数、是否跳过匹配、后处理画图都在这个文件里维护。
+默认 panoramic 配置在 `configs/experiments/panoramic_threshold_sweep.yaml`。KITTI RAW 示例配置在 `configs/experiments/kitti_raw_city_0001.yaml`。场景列表、阈值实验、BA 参数、是否跳过匹配、后处理画图都在这些 YAML 文件里维护。
 
 ### 路径约定
 
@@ -170,14 +178,23 @@ python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
 
 | 路径 | 说明 |
 |------|------|
-| `{kitti_root_dir}/image_2/{scene}_10.png` | 第 1 帧左目 |
-| `{kitti_root_dir}/image_3/{scene}_10.png` | 第 1 帧右目 |
-| `{kitti_root_dir}/image_2/{scene}_11.png` | 第 2 帧左目 |
-| `{kitti_root_dir}/image_3/{scene}_11.png` | 第 2 帧右目 |
+| `{kitti_root_dir}/image_00/data/{scene}.png` | 左目图像 |
+| `{kitti_root_dir}/image_01/data/{scene}.png` | 右目图像 |
 | `stereo_calib/result/match_points/kitti2015_{scene}_matches.json` | 匹配结果输出 |
 | `stereo_calib/result/gt_params/kitti2015_{scene}_gt_camera.json` | 自动生成的 KITTI GT 相机参数 |
 | `stereo_calib/result/ba_results/kitti2015_{scene}_ba_result.json` | BA 结果输出（含 `gt_source` / `diff_vs_gt`） |
 | `stereo_calib/result/kitti2015_{scene}_ba_history.png` | 优化历史图输出 |
+
+#### kitti_raw_sequence 模式
+
+| 路径 | 说明 |
+|------|------|
+| `--left_img_dir` | KITTI RAW 左目连续帧目录，如 `image_00/data` |
+| `--right_img_dir` | KITTI RAW 右目连续帧目录，如 `image_01/data` |
+| `build/bin/run_offline_stereo_ba_kitti` | KITTI 专用 BA 程序 |
+| `stereo_calib/result/match_points/{result_prefix}_conf_thresh=..._matches_raw.json` | 匹配结果输出 |
+| `stereo_calib/result/ba_results/{result_prefix}_conf_thresh=..._ba_result_raw.json` | BA 结果输出 |
+| `stereo_calib/result/{result_prefix}_conf_thresh=..._ba_history_raw.png` | 优化历史图输出 |
 
 ---
 
@@ -187,9 +204,12 @@ python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
 
 | 参数 | 说明 |
 |------|------|
-| `--dataset_mode` | 数据集模式：`project` 或 `kitti2015` |
-| `--scene` | `project` 模式下为场景名称；`kitti2015` 模式下为 scene id（如 `000000`） |
-| `--kitti_root_dir` | KITTI Stereo 2015 training 根目录，需包含 `image_2/` 和 `image_3/` |
+| `--dataset_mode` | 数据集模式：`project`、`kitti2015`、`kitti_raw_aggregate` 或 `kitti_raw_sequence` |
+| `--scene` | `project` 模式下为场景名称；KITTI 模式下为 scene/frame id 或输出标签 |
+| `--kitti_root_dir` | KITTI RAW drive 根目录，需包含 `image_00/data` 和 `image_01/data` |
+| `--left_img_dir` / `--right_img_dir` | KITTI RAW sequence 模式下显式指定左右目图像目录 |
+| `--gt_param_file` | 显式指定 GT 相机参数文件，覆盖自动生成路径 |
+| `--init_param_file` | 显式指定 BA 初始参数文件，KITTI 专用 BA 会使用 |
 | `--skip_match` | 跳过特征匹配，复用已有 matches JSON |
 | `--skip_ba` | 跳过 BA 优化，复用已有 BA 结果 JSON |
 | `--no_plot` | 跳过可视化步骤 |
@@ -215,6 +235,22 @@ python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
 | `--max_score` | `1.0` | 匹配点最大得分阈值（L2 距离），越小越严格 |
 | `--huber` | `1.0` | Huber 损失函数阈值（像素） |
 | `--fix_distortion` | 关闭 | 固定畸变参数不参与优化 |
+| `--baseline_prior` | BA 程序默认 | 基线先验权重 |
+| `--tx_prior` | BA 程序默认 | x 方向平移先验权重，KITTI 专用 |
+| `--focal_prior` | BA 程序默认 | 焦距先验权重，KITTI 专用 |
+| `--focal_lower_scale` / `--focal_upper_scale` | BA 程序默认 | 焦距上下界缩放，KITTI 专用 |
+| `--enable_per_frame_correction` | 关闭 | 启用 KITTI 专用 BA 的逐帧本地校正 |
+| `--reset_camera_params_each_ba_round` | 关闭 | 每轮 BA 前重置相机参数到初始值 |
+
+### 快速验证
+
+改动入口脚本或 C++ BA 后，可以运行轻量回归检查：
+
+```bash
+scripts/check_project.sh
+```
+
+它会检查 Python 语法、`run_pipeline.py --help`、panoramic/KITTI RAW 配置 dry-run，并编译 C++ 目标。
 
 ---
 
