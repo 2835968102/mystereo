@@ -1,0 +1,52 @@
+# KITTI RAW City 2011_09_26_drive_0001_extract pipeline.
+# This mirrors run_kitti_raw_city_2011_09_26_drive_0001.sh in a config-driven form.
+name: kitti_raw_city_0001
+
+build:
+  enabled: true
+  source_dir: stereo_calib
+  build_dir: build
+
+runner:
+  conda_env: stereo-calib-vis
+  python_executable: python
+  pipeline_script: run_pipeline.py
+
+defaults:
+  pipeline_args:
+    dataset_mode: kitti_raw_sequence
+    scene: kitti_city_2011_09_26_drive_0001_extract
+    result_prefix: kitti_city_2011_09_26_drive_0001_extract
+
+    left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_00/data
+    right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_01/data
+    gt_param_file: stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json
+    init_param_file: stereo_calib/data/kitti_raw_00_01_init_params.txt
+
+    conf_thresh: 0.2
+    nms_dist: 15
+    nn_thresh: 1
+    skip_match: true
+
+    max_iter: 40
+    incremental_max_iter: 30
+    per_frame_max_iter: 5
+    global_opt_interval: 10
+    min_pair_inliers: 15
+    max_score: 0.5
+    min_track_len: 3
+    fix_distortion: true
+    baseline_prior: 100
+    tx_prior: 20
+    focal_prior: 1
+    focal_lower_scale: 0.2
+    focal_upper_scale: 3.0
+    outlier_threshold: 2.0
+    enable_per_frame_correction: true
+
+scenes:
+  - kitti_city_2011_09_26_drive_0001_extract
+
+runs:
+  - label: raw
+    pipeline_args: {}

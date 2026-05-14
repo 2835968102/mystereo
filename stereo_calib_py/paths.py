@@ -26,6 +26,8 @@ class PipelinePaths:
     scene: str
     img_dir: Path
     matcher_input_dir: Path | None
+    left_img_dir: Path | None
+    right_img_dir: Path | None
     result_dir: Path
     match_json: Path
     ba_result_json: Path
@@ -35,6 +37,7 @@ class PipelinePaths:
     ba_bin: Path
     match_script: Path
     plot_script: Path
+    matcher_kind: str
 
 
 def resolve_paths(
@@ -44,6 +47,12 @@ def resolve_paths(
     kitti_root_dir: str | None,
     match_json: str | None,
     result_prefix: str | None,
+    gt_param_file: str | None = None,
+    left_img_dir: str | None = None,
+    right_img_dir: str | None = None,
+    conf_thresh: float | None = None,
+    nms_dist: int | None = None,
+    nn_thresh: float | None = None,
 ) -> PipelinePaths:
     """根据数据集模式、场景名和像素阈值标签生成相关路径。
 
@@ -51,13 +60,17 @@ def resolve_paths(
     生成的命令和历史结果文件仍能对应上。
     """
     result_dir = PROJECT_ROOT / "stereo_calib/result"
+    explicit_gt_file = Path(gt_param_file) if gt_param_file else None
+    left_img_path: Path | None = None
+    right_img_path: Path | None = None
+    matcher_kind = "standard"
 
     if dataset_mode == "project":
         # 项目内 Blender 数据集：目录名为 blender-file/stereo_{scene}。
         # `blender-file` 当前是指向 `datasets/blender` 的兼容软链接。
         result_prefix = scene
         img_dir = PROJECT_ROOT / f"blender-file/stereo_{scene}"
-        gt_file = img_dir / "camera_params_0000.json"
+        gt_file = explicit_gt_file or (img_dir / "camera_params_0000.json")
         matcher_input_dir = img_dir
         match_json_path = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
         ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
@@ -70,7 +83,7 @@ def resolve_paths(
             raise ValueError("KITTI 模式需要提供 --kitti_root_dir")
         img_dir = Path(kitti_root_dir)
         kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
-        gt_file = build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
         matcher_input_dir = img_dir
         match_json_path = result_dir / "match_points" / f"{result_prefix}_matches.json"
         ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
@@ -85,19 +98,38 @@ def resolve_paths(
         result_prefix = result_prefix or "kitti_raw_00_01"
         img_dir = Path(kitti_root_dir)
         kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
-        gt_file = build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
         matcher_input_dir = None
         match_json_path = Path(match_json)
         ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
         plot_png = result_dir / f"{result_prefix}_ba_history.png"
+    elif dataset_mode == "kitti_raw_sequence":
+        if not kitti_root_dir and not (left_img_dir and right_img_dir):
+            raise ValueError("KITTI RAW sequence 模式需要提供 --kitti_root_dir 或 --left_img_dir/--right_img_dir")
+        result_prefix = result_prefix or scene
+        img_dir = Path(kitti_root_dir) if kitti_root_dir else Path(left_img_dir).parent.parent
+        left_img_path = Path(left_img_dir) if left_img_dir else img_dir / "image_00" / "data"
+        right_img_path = Path(right_img_dir) if right_img_dir else img_dir / "image_01" / "data"
+        kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
+        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        matcher_input_dir = None
+        matcher_kind = "raw_stereo_sequence"
+        param_tag = f"conf_thresh={conf_thresh}_nms_dist={nms_dist}_nn_thresh={nn_thresh}"
+        match_json_path = result_dir / "match_points" / f"{result_prefix}_{param_tag}_matches_raw.json"
+        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_{param_tag}_ba_result_raw.json"
+        plot_png = result_dir / f"{result_prefix}_{param_tag}_ba_history_raw.png"
     else:
         raise ValueError(f"不支持的数据集模式: {dataset_mode}")
+
+    is_kitti_mode = dataset_mode in ("kitti2015", "kitti_raw_aggregate", "kitti_raw_sequence")
 
     return PipelinePaths(
         dataset_mode=dataset_mode,
         scene=scene,
         img_dir=img_dir,
         matcher_input_dir=matcher_input_dir,
+        left_img_dir=left_img_path,
+        right_img_dir=right_img_path,
         result_dir=result_dir,
         match_json=match_json_path,
         ba_result_json=ba_result_json,
@@ -106,7 +138,10 @@ def resolve_paths(
         # 下面这些是工具/模型路径。它们目前仍沿用项目旧布局，先集中
         # 放在这里，后续若支持配置覆盖，也只需要扩展本模块接口。
         weights=PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth",
-        ba_bin=PROJECT_ROOT / "build/bin/run_offline_stereo_ba",
-        match_script=PROJECT_ROOT / "stereo_calib/scripts/superpoint_stereo_match.py",
+        ba_bin=PROJECT_ROOT / "build/bin" / ("run_offline_stereo_ba_kitti" if is_kitti_mode else "run_offline_stereo_ba"),
+        match_script=PROJECT_ROOT / "stereo_calib/scripts" / (
+            "superpoint_stereo_match_raw.py" if matcher_kind == "raw_stereo_sequence" else "superpoint_stereo_match.py"
+        ),
         plot_script=PROJECT_ROOT / "stereo_calib/scripts/plot_ba_history.py",
+        matcher_kind=matcher_kind,
     )

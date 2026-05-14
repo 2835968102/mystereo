@@ -28,6 +28,11 @@ def validate_inputs(args: argparse.Namespace, paths: PipelinePaths) -> None:
             subdir_path = paths.img_dir / subdir
             if not subdir_path.exists():
                 missing.append(f"KITTI 子目录：{subdir_path}")
+    if args.dataset_mode == "kitti_raw_sequence":
+        if paths.left_img_dir is None or not paths.left_img_dir.exists():
+            missing.append(f"KITTI 左图目录：{paths.left_img_dir}")
+        if paths.right_img_dir is None or not paths.right_img_dir.exists():
+            missing.append(f"KITTI 右图目录：{paths.right_img_dir}")
     if not args.skip_match and not paths.weights.exists():
         missing.append(f"SuperPoint 权重：{paths.weights}")
     if not args.skip_ba and not paths.ba_bin.exists():
@@ -54,26 +59,44 @@ def run_match_if_needed(args: argparse.Namespace, paths: PipelinePaths) -> None:
 
         log_step(f"步骤 1/3：SuperPoint 特征匹配（数据集：{args.dataset_mode}，场景：{args.scene}）")
 
-        cmd = [
-            sys.executable,
-            str(paths.match_script),
-            "--dataset_mode",
-            args.dataset_mode,
-            "--img_dir",
-            str(paths.matcher_input_dir),
-            "--scene",
-            args.scene,
-            "--weights",
-            str(paths.weights),
-            "--output",
-            str(paths.match_json),
-            "--nn_thresh",
-            str(args.nn_thresh),
-            "--conf_thresh",
-            str(args.conf_thresh),
-            "--nms_dist",
-            str(args.nms_dist),
-        ]
+        if paths.matcher_kind == "raw_stereo_sequence":
+            cmd = [
+                sys.executable,
+                str(paths.match_script),
+                "--left_img_dir",
+                str(paths.left_img_dir),
+                "--right_img_dir",
+                str(paths.right_img_dir),
+                "--output",
+                str(paths.match_json),
+                "--nn_thresh",
+                str(args.nn_thresh),
+                "--conf_thresh",
+                str(args.conf_thresh),
+                "--nms_dist",
+                str(args.nms_dist),
+            ]
+        else:
+            cmd = [
+                sys.executable,
+                str(paths.match_script),
+                "--dataset_mode",
+                args.dataset_mode,
+                "--img_dir",
+                str(paths.matcher_input_dir),
+                "--scene",
+                args.scene,
+                "--weights",
+                str(paths.weights),
+                "--output",
+                str(paths.match_json),
+                "--nn_thresh",
+                str(args.nn_thresh),
+                "--conf_thresh",
+                str(args.conf_thresh),
+                "--nms_dist",
+                str(args.nms_dist),
+            ]
         # CUDA 只影响 Python SuperPoint 推理，不影响后续 C++ BA。
         if args.cuda:
             cmd.append("--cuda")
@@ -118,6 +141,31 @@ def run_ba_if_needed(args: argparse.Namespace, paths: PipelinePaths) -> None:
         # diff_vs_gt 和日志对比；没有 GT 时仍可正常优化。
         if paths.gt_file is not None and paths.gt_file.exists():
             cmd += ["--gt_param_file", str(paths.gt_file)]
+
+        if args.init_param_file:
+            cmd += ["--init_param_file", str(args.init_param_file)]
+        if args.frame_poses_file:
+            cmd += ["--frame_poses_file", str(args.frame_poses_file)]
+
+        optional_value_args = {
+            "per_frame_max_iter": getattr(args, "per_frame_max_iter", None),
+            "baseline_prior": getattr(args, "baseline_prior", None),
+            "tx_prior": getattr(args, "tx_prior", None),
+            "focal_prior": getattr(args, "focal_prior", None),
+            "focal_lower_scale": getattr(args, "focal_lower_scale", None),
+            "focal_upper_scale": getattr(args, "focal_upper_scale", None),
+            "outlier_threshold": getattr(args, "outlier_threshold", None),
+            "outlier_rounds": getattr(args, "outlier_rounds", None),
+            "max_reproj_error": getattr(args, "max_reproj_error", None),
+        }
+        for name, value in optional_value_args.items():
+            if value is not None:
+                cmd += [f"--{name}", str(value)]
+
+        if getattr(args, "enable_per_frame_correction", False):
+            cmd.append("--enable_per_frame_correction")
+        if getattr(args, "reset_camera_params_each_ba_round", False):
+            cmd.append("--reset_camera_params_each_ba_round")
 
         run_cmd(cmd, cwd=PROJECT_ROOT)
         print(f"\nBA 结果已写入：{paths.ba_result_json}")
@@ -169,6 +217,12 @@ def run_pipeline(args: argparse.Namespace) -> None:
             args.kitti_root_dir,
             args.match_json,
             args.result_prefix,
+            args.gt_param_file,
+            args.left_img_dir,
+            args.right_img_dir,
+            args.conf_thresh,
+            args.nms_dist,
+            args.nn_thresh,
         )
     except (ValueError, FileNotFoundError) as exc:
         sys.exit(str(exc))

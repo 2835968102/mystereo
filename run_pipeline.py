@@ -44,8 +44,8 @@ def parse_args():
     )
 
     # 场景选择
-    p.add_argument("--dataset_mode", choices=["project", "kitti2015", "kitti_raw_aggregate"], default="project",
-                   help="数据集模式：project 使用 blender-file/stereo_{scene}；kitti2015 使用 KITTI RAW 单帧；kitti_raw_aggregate 直接消费汇总 matches JSON")
+    p.add_argument("--dataset_mode", choices=["project", "kitti2015", "kitti_raw_aggregate", "kitti_raw_sequence"], default="project",
+                   help="数据集模式：project 使用 blender-file/stereo_{scene}；kitti2015 使用 KITTI RAW 单帧；kitti_raw_aggregate 直接消费汇总 matches JSON；kitti_raw_sequence 使用 KITTI RAW 连续帧")
     p.add_argument("--scene", default="panoramic_01",
                    help="project 模式下为场景名（如 panoramic_02）；kitti2015 模式下为帧号（如 0000000000）")
     p.add_argument("--kitti_root_dir", default=None,
@@ -54,6 +54,16 @@ def parse_args():
                    help="已有 matches JSON 路径（供 kitti_raw_aggregate 等模式复用）")
     p.add_argument("--result_prefix", default=None,
                    help="输出结果文件名前缀（供聚合模式使用）")
+    p.add_argument("--gt_param_file", default=None,
+                   help="显式指定 GT 相机参数文件，覆盖自动生成/自动解析路径")
+    p.add_argument("--init_param_file", default=None,
+                   help="显式指定 BA 初始相机参数文件（KITTI 专用 BA 会使用）")
+    p.add_argument("--frame_poses_file", default=None,
+                   help="显式指定帧位姿 JSON（KITTI 专用 BA 会使用）")
+    p.add_argument("--left_img_dir", default=None,
+                   help="KITTI RAW sequence 左目图像目录")
+    p.add_argument("--right_img_dir", default=None,
+                   help="KITTI RAW sequence 右目图像目录")
     p.add_argument("--pixel_tag", default="3px",
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
 
@@ -95,6 +105,28 @@ def parse_args():
                     help="匹配点最大得分阈值（过滤低质量匹配，越小越严格）")
     ba.add_argument("--fix_distortion",       action="store_true",
                     help="固定畸变参数不优化")
+    ba.add_argument("--per_frame_max_iter",   type=int,   default=5,
+                    help="KITTI 逐帧本地校正最大迭代次数")
+    ba.add_argument("--baseline_prior",       type=float, default=None,
+                    help="基线先验权重")
+    ba.add_argument("--tx_prior",             type=float, default=None,
+                    help="x 方向平移先验权重（KITTI 专用）")
+    ba.add_argument("--focal_prior",          type=float, default=None,
+                    help="焦距先验权重（KITTI 专用）")
+    ba.add_argument("--focal_lower_scale",    type=float, default=None,
+                    help="焦距下界缩放因子（KITTI 专用）")
+    ba.add_argument("--focal_upper_scale",    type=float, default=None,
+                    help="焦距上界缩放因子（KITTI 专用）")
+    ba.add_argument("--outlier_threshold",    type=float, default=None,
+                    help="外点剔除阈值（像素）")
+    ba.add_argument("--outlier_rounds",       type=int,   default=None,
+                    help="外点剔除最大轮数")
+    ba.add_argument("--max_reproj_error",     type=float, default=None,
+                    help="最大可接受重投影误差")
+    ba.add_argument("--enable_per_frame_correction", action="store_true",
+                    help="启用逐帧本地校正（KITTI 专用 BA 支持）")
+    ba.add_argument("--reset_camera_params_each_ba_round", action="store_true",
+                    help="每轮 BA 前重置相机参数到初始值（KITTI 专用 BA 支持）")
 
     return p.parse_args()
 
