@@ -30,6 +30,8 @@ data/
 
 # Blender files
 blender-file/
+blender-file
+datasets/blender/
 
 # Misc
 *.log
