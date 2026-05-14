@@ -9,6 +9,8 @@ BA_BIN="$BUILD_DIR/bin/run_offline_stereo_ba_kitti"
 MATCH_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/match_points"
 BA_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result/ba_results"
 PLOT_OUTPUT_DIR="$CURRENT_DIR/stereo_calib/result"
+GT_PARAM_FILE="$CURRENT_DIR/stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json"
+INIT_PARAM_FILE="$CURRENT_DIR/stereo_calib/data/kitti_raw_00_01_init_params.txt"
 CONDA_BIN="${CONDA_BIN:-}"
 
 LEFT_IMG_DIR="/home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_00/data"
@@ -205,14 +207,14 @@ if [[ ! -d "$RIGHT_IMG_DIR" ]]; then
     echo "右图目录不存在: $RIGHT_IMG_DIR"
     exit 1
 fi
-<<<<<<< HEAD
 if [[ ! -f "$GT_PARAM_FILE" ]]; then
     echo "GT 参数文件不存在: $GT_PARAM_FILE"
     exit 1
 fi
 if [[ ! -f "$INIT_PARAM_FILE" ]]; then
     echo "初始参数文件不存在: $INIT_PARAM_FILE"
-=======
+    exit 1
+fi
 if [[ -z "$CONDA_BIN" ]]; then
     if command -v conda >/dev/null 2>&1; then
         CONDA_BIN="$(command -v conda)"
@@ -225,7 +227,6 @@ if [[ -z "$CONDA_BIN" ]]; then
 fi
 if [[ ! -x "$CONDA_BIN" ]]; then
     echo "conda 不可执行: $CONDA_BIN"
->>>>>>> eb56c23
     exit 1
 fi
 
@@ -262,7 +263,6 @@ echo "========================================"
 
 DATASET_START_TIME=$(date +%s)
 
-<<<<<<< HEAD
 if [[ -f "$OUTPUT_MATCH_JSON" && "$FORCE_REMATCH" -eq 0 ]]; then
     echo "检测到已有匹配结果，跳过 SuperPoint: $OUTPUT_MATCH_JSON"
 else
@@ -273,7 +273,7 @@ else
     fi
 
     MATCH_CMD=(
-        conda run --no-capture-output -n stereo-calib-vis python "$SCRIPT_PATH"
+        "$CONDA_BIN" run --no-capture-output -n stereo-calib-vis python "$SCRIPT_PATH"
         --left_img_dir "$LEFT_IMG_DIR"
         --right_img_dir "$RIGHT_IMG_DIR"
         --output "$OUTPUT_MATCH_JSON"
@@ -285,19 +285,6 @@ else
         MATCH_CMD+=(--cuda)
     fi
     "${MATCH_CMD[@]}"
-=======
-MATCH_CMD=(
-    "$CONDA_BIN" run --no-capture-output -n stereo-calib-vis python "$SCRIPT_PATH"
-    --left_img_dir "$LEFT_IMG_DIR"
-    --right_img_dir "$RIGHT_IMG_DIR"
-    --output "$OUTPUT_MATCH_JSON"
-    --conf_thresh "$CONF_THRESH"
-    --nms_dist "$NMS_DIST"
-    --nn_thresh "$NN_THRESH"
-)
-if [[ "$USE_CUDA" -eq 1 ]]; then
-    MATCH_CMD+=(--cuda)
->>>>>>> eb56c23
 fi
 
 BA_CMD=(
