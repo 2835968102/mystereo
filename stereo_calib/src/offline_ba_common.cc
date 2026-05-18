@@ -245,6 +245,7 @@ json BuildResultJson(const OptimizationResult& result,
   out["init_reproj_error"] = result.init_reproj_error;
   out["final_reproj_error"] = result.final_reproj_error;
   out["optimization_history"] = result.optimization_history;
+  out["outlier_rejection_history"] = result.outlier_rejection_history;
   out["summary"] = BuildSummaryFromHistory(result.optimization_history);
   return out;
 }
@@ -266,4 +267,3 @@ void AppendGroundTruthDiff(json& out,
 }
 
 }  // namespace stereocalib
-

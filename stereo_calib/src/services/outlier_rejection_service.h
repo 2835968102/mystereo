@@ -1,6 +1,7 @@
 #ifndef STEREO_CALIB_SRC_SERVICES_OUTLIER_REJECTION_SERVICE_H
 #define STEREO_CALIB_SRC_SERVICES_OUTLIER_REJECTION_SERVICE_H
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -32,9 +33,19 @@ struct OutlierRejectionState {
 
 // ─── Outlier Rejection Result ───────────────────────────────────────────────
 
+struct OutlierRejectionRoundInfo {
+  int round = 0;
+  size_t observations_before = 0;
+  int rejected_count = 0;
+  size_t remaining_observations = 0;
+};
+
 struct OutlierRejectionResult {
   int rejected_count = 0;
   int total_rounds = 0;
+  size_t initial_observations = 0;
+  size_t remaining_observations = 0;
+  std::vector<OutlierRejectionRoundInfo> rounds;
 };
 
 // ─── Outlier Rejection Service Interface ────────────────────────────────────

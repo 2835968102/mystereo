@@ -14,6 +14,35 @@ void ResetCameraParamsToInitialization(BAState& state) {
   state.extrinsics = state.init_extrinsics;
 }
 
+nlohmann::json BuildOutlierHistoryEntry(
+    const std::string& stage,
+    size_t registered_frames,
+    size_t total_frames,
+    double threshold,
+    const OutlierRejectionResult& result) {
+  nlohmann::json rounds = nlohmann::json::array();
+  for (const OutlierRejectionRoundInfo& round : result.rounds) {
+    rounds.push_back({
+        {"round", round.round},
+        {"observations_before", round.observations_before},
+        {"rejected_count", round.rejected_count},
+        {"remaining_observations", round.remaining_observations},
+    });
+  }
+
+  return {
+      {"stage", stage},
+      {"registered_frames", registered_frames},
+      {"total_frames", total_frames},
+      {"threshold_px", threshold},
+      {"total_rounds", result.total_rounds},
+      {"rejected_count", result.rejected_count},
+      {"initial_observations", result.initial_observations},
+      {"remaining_observations", result.remaining_observations},
+      {"rounds", rounds},
+  };
+}
+
 OutlierRejectionState BuildOutlierState(
     const BAState& state,
     std::vector<FrameState>& frames,
@@ -271,10 +300,17 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
         BuildOutlierState(state, frames, tracks, &active_frames);
     const OutlierRejectionResult rejection_result =
         outlier_service_->RejectOutliersIterative(interval_outlier_state, outlier_config);
+    result.outlier_rejection_history.push_back(BuildOutlierHistoryEntry(
+        "Interval Outlier Rejection - Registered Frame " + std::to_string(i + 1),
+        i + 1,
+        reg_order.size(),
+        outlier_config.threshold,
+        rejection_result));
     std::cout << "[Interval Outlier Rejection] registered_frames=" << (i + 1)
               << "/" << reg_order.size()
               << ", rejected=" << rejection_result.rejected_count
               << ", rounds=" << rejection_result.total_rounds
+              << ", remaining_observations=" << rejection_result.remaining_observations
               << ", threshold=" << std::fixed << std::setprecision(4)
               << outlier_config.threshold << " px" << std::endl;
 
@@ -316,9 +352,16 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
       BuildOutlierState(state, frames, tracks, &active_frames);
   const OutlierRejectionResult final_rejection_result =
       outlier_service_->RejectOutliersIterative(outlier_state, outlier_config);
+  result.outlier_rejection_history.push_back(BuildOutlierHistoryEntry(
+      "Post BA Outlier Rejection",
+      successful_registrations + 1,
+      reg_order.size(),
+      outlier_config.threshold,
+      final_rejection_result));
   std::cout << "[Post BA Outlier Rejection] rejected="
             << final_rejection_result.rejected_count
             << ", rounds=" << final_rejection_result.total_rounds
+            << ", remaining_observations=" << final_rejection_result.remaining_observations
             << ", threshold=" << std::fixed << std::setprecision(4)
             << outlier_config.threshold << " px" << std::endl;
 

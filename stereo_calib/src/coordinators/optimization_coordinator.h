@@ -67,6 +67,7 @@ struct OptimizationResult {
   double final_reproj_error = 0.0;
   
   std::vector<nlohmann::json> optimization_history;
+  std::vector<nlohmann::json> outlier_rejection_history;
 };
 
 // ─── Optimization Coordinator ───────────────────────────────────────────────

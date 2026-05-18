@@ -8,10 +8,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from .kitti import build_kitti_gt_camera_json
 from .project import PROJECT_ROOT
+
+
+def format_tag_value(value: object) -> str:
+    """Format numeric values the same way the old shell scripts named files."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def make_output_timestamp() -> str:
+    """Create a compact timestamp for result filenames."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
 
 @dataclass(frozen=True)
@@ -53,11 +66,16 @@ def resolve_paths(
     conf_thresh: float | None = None,
     nms_dist: int | None = None,
     nn_thresh: float | None = None,
+    skip_match: bool = False,
+    skip_ba: bool = False,
+    output_timestamp: str | None = None,
+    build_gt: bool = True,
 ) -> PipelinePaths:
     """根据数据集模式、场景名和像素阈值标签生成相关路径。
 
-    这里保留旧版输出命名规则，确保 `run_experiment.py --dry-run`
-    生成的命令和历史结果文件仍能对应上。
+    新生成的结果文件默认使用“场景名 + 时间戳”命名；当跳过匹配或
+    跳过 BA 时，仍优先使用旧版固定命名作为输入缓存。`build_gt=False`
+    只预测 KITTI GT 路径，不写入转换后的 GT JSON，供 dry-run/runner 使用。
     """
     result_dir = PROJECT_ROOT / "stereo_calib/result"
     explicit_gt_file = Path(gt_param_file) if gt_param_file else None
@@ -72,9 +90,16 @@ def resolve_paths(
         img_dir = PROJECT_ROOT / f"blender-file/stereo_{scene}"
         gt_file = explicit_gt_file or (img_dir / "camera_params_0000.json")
         matcher_input_dir = img_dir
-        match_json_path = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
-        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
-        plot_png = result_dir / f"{result_prefix}_ba_history_gtpose_dsym_le_{pixel_tag}.png"
+        output_prefix = f"{result_prefix}_{output_timestamp or make_output_timestamp()}"
+        legacy_match_json = result_dir / "match_points" / f"{result_prefix}_matches_gtpose_dsym_le_{pixel_tag}.json"
+        legacy_ba_result = result_dir / "ba_results" / f"{result_prefix}_ba_result_le_{pixel_tag}.json"
+        match_json_path = (
+            Path(match_json)
+            if match_json
+            else legacy_match_json if skip_match else result_dir / "match_points" / f"{output_prefix}_matches.json"
+        )
+        ba_result_json = legacy_ba_result if skip_ba else result_dir / "ba_results" / f"{output_prefix}_ba_result.json"
+        plot_png = result_dir / f"{output_prefix}_ba_history.png"
     elif dataset_mode == "kitti2015":
         # KITTI 单帧/单 scene 模式：输入目录由调用者指定，GT JSON 由
         # KITTI 官方 calib_cam_to_cam.txt 临时生成到 result/gt_params。
@@ -83,11 +108,22 @@ def resolve_paths(
             raise ValueError("KITTI 模式需要提供 --kitti_root_dir")
         img_dir = Path(kitti_root_dir)
         kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
-        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        gt_file = explicit_gt_file or (
+            build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+            if build_gt
+            else result_dir / "gt_params" / f"{result_prefix}_gt_camera.json"
+        )
         matcher_input_dir = img_dir
-        match_json_path = result_dir / "match_points" / f"{result_prefix}_matches.json"
-        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
-        plot_png = result_dir / f"{result_prefix}_ba_history.png"
+        output_prefix = f"{result_prefix}_{output_timestamp or make_output_timestamp()}"
+        legacy_match_json = result_dir / "match_points" / f"{result_prefix}_matches.json"
+        legacy_ba_result = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
+        match_json_path = (
+            Path(match_json)
+            if match_json
+            else legacy_match_json if skip_match else result_dir / "match_points" / f"{output_prefix}_matches.json"
+        )
+        ba_result_json = legacy_ba_result if skip_ba else result_dir / "ba_results" / f"{output_prefix}_ba_result.json"
+        plot_png = result_dir / f"{output_prefix}_ba_history.png"
     elif dataset_mode == "kitti_raw_aggregate":
         # 聚合模式不重新跑匹配，直接消费外部生成好的 matches JSON。
         # 因此 matcher_input_dir 为空，pipeline 层也会要求配合 --skip_match。
@@ -98,11 +134,17 @@ def resolve_paths(
         result_prefix = result_prefix or "kitti_raw_00_01"
         img_dir = Path(kitti_root_dir)
         kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
-        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        gt_file = explicit_gt_file or (
+            build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+            if build_gt
+            else result_dir / "gt_params" / f"{result_prefix}_gt_camera.json"
+        )
         matcher_input_dir = None
         match_json_path = Path(match_json)
-        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
-        plot_png = result_dir / f"{result_prefix}_ba_history.png"
+        output_prefix = f"{result_prefix}_{output_timestamp or make_output_timestamp()}"
+        legacy_ba_result = result_dir / "ba_results" / f"{result_prefix}_ba_result.json"
+        ba_result_json = legacy_ba_result if skip_ba else result_dir / "ba_results" / f"{output_prefix}_ba_result.json"
+        plot_png = result_dir / f"{output_prefix}_ba_history.png"
     elif dataset_mode == "kitti_raw_sequence":
         if not kitti_root_dir and not (left_img_dir and right_img_dir):
             raise ValueError("KITTI RAW sequence 模式需要提供 --kitti_root_dir 或 --left_img_dir/--right_img_dir")
@@ -111,13 +153,28 @@ def resolve_paths(
         left_img_path = Path(left_img_dir) if left_img_dir else img_dir / "image_00" / "data"
         right_img_path = Path(right_img_dir) if right_img_dir else img_dir / "image_01" / "data"
         kitti_calib_dir = img_dir.parent.parent.parent / "2011_09_26_calib" / "2011_09_26"
-        gt_file = explicit_gt_file or build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+        gt_file = explicit_gt_file or (
+            build_kitti_gt_camera_json(kitti_calib_dir, result_dir, result_prefix)
+            if build_gt
+            else result_dir / "gt_params" / f"{result_prefix}_gt_camera.json"
+        )
         matcher_input_dir = None
         matcher_kind = "raw_stereo_sequence"
-        param_tag = f"conf_thresh={conf_thresh}_nms_dist={nms_dist}_nn_thresh={nn_thresh}"
-        match_json_path = result_dir / "match_points" / f"{result_prefix}_{param_tag}_matches_raw.json"
-        ba_result_json = result_dir / "ba_results" / f"{result_prefix}_{param_tag}_ba_result_raw.json"
-        plot_png = result_dir / f"{result_prefix}_{param_tag}_ba_history_raw.png"
+        param_tag = (
+            f"conf_thresh={format_tag_value(conf_thresh)}"
+            f"_nms_dist={format_tag_value(nms_dist)}"
+            f"_nn_thresh={format_tag_value(nn_thresh)}"
+        )
+        output_prefix = f"{result_prefix}_{output_timestamp or make_output_timestamp()}"
+        legacy_match_json = result_dir / "match_points" / f"{result_prefix}_{param_tag}_matches_raw.json"
+        legacy_ba_result = result_dir / "ba_results" / f"{result_prefix}_{param_tag}_ba_result_raw.json"
+        match_json_path = (
+            Path(match_json)
+            if match_json
+            else legacy_match_json if skip_match else result_dir / "match_points" / f"{output_prefix}_matches_raw.json"
+        )
+        ba_result_json = legacy_ba_result if skip_ba else result_dir / "ba_results" / f"{output_prefix}_ba_result_raw.json"
+        plot_png = result_dir / f"{output_prefix}_ba_history_raw.png"
     else:
         raise ValueError(f"不支持的数据集模式: {dataset_mode}")
 

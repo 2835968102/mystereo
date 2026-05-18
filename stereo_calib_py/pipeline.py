@@ -33,8 +33,12 @@ def validate_inputs(args: argparse.Namespace, paths: PipelinePaths) -> None:
             missing.append(f"KITTI 左图目录：{paths.left_img_dir}")
         if paths.right_img_dir is None or not paths.right_img_dir.exists():
             missing.append(f"KITTI 右图目录：{paths.right_img_dir}")
-    if not args.skip_match and not paths.weights.exists():
+    if not args.skip_match and paths.matcher_kind != "raw_stereo_sequence" and not paths.weights.exists():
         missing.append(f"SuperPoint 权重：{paths.weights}")
+    if not args.skip_match and paths.matcher_kind == "raw_stereo_sequence":
+        raw_weights = paths.match_script.parent / "superpoint_v1.pth"
+        if not raw_weights.exists():
+            missing.append(f"SuperPoint raw 权重：{raw_weights}")
     if not args.skip_ba and not paths.ba_bin.exists():
         missing.append(
             f"BA 可执行文件：{paths.ba_bin}"
@@ -223,6 +227,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
             args.conf_thresh,
             args.nms_dist,
             args.nn_thresh,
+            args.skip_match,
+            args.skip_ba,
+            args.output_timestamp,
         )
     except (ValueError, FileNotFoundError) as exc:
         sys.exit(str(exc))

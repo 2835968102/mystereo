@@ -52,6 +52,15 @@ def load_data(json_path: str):
     return history, data
 
 
+def filter_global_history(history):
+    """Keep only global BA stages so fixed per-frame correction stages are hidden."""
+    global_history = [item for item in history if is_global(item.get("stage", ""))]
+    if global_history:
+        return global_history
+    print("警告：未找到 Global BA 阶段，将显示全部 optimization_history。", file=sys.stderr)
+    return history
+
+
 def extract_series(history):
     """从 optimization_history 中提取所有需要绘制的时间序列。"""
     stages        = []
@@ -199,7 +208,7 @@ def _draw_panel(ax, idx, values, global_mask, ylabel, unit="",
         ax.spines[spine].set_visible(False)
 
 
-def plot_all(series, data, output_path):
+def plot_all(series, data, output_path, global_only=True):
     stages = series["stages"]
     idx = series["idx"]
     global_mask = series["global_mask"]
@@ -207,18 +216,6 @@ def plot_all(series, data, output_path):
     summary = build_summary(data, series)
 
     xlabels = [short_label(s) for s in stages]
-
-    # ── 画布：4 行 × 2 列 ─────────────────────────────────────────────
-    fig, axes = plt.subplots(4, 2, figsize=(16, 14), sharex=False)
-    fig.patch.set_facecolor(BG_FIG)
-
-    num_frames = data.get("num_frames", "?")
-    num_tracks = data.get("num_tracks", "?")
-    fig.suptitle(
-        f"BA Optimization History — All Parameter Errors\n"
-        f"({num_frames} frames, {num_tracks} tracks, {n} stages)",
-        fontsize=14, fontweight="bold", y=0.995,
-    )
 
     summary_lines = [
         format_mean("Mean reproj", summary["avg_reproj_error_px"], "px"),
@@ -233,6 +230,19 @@ def plot_all(series, data, output_path):
         format_mean("Mean |Δty|", summary["avg_trans_err_y_m"], "m"),
         format_mean("Mean |Δtz|", summary["avg_trans_err_z_m"], "m"),
     ]
+    # ── 画布：4 行 × 2 列 ─────────────────────────────────────────────
+    fig, axes = plt.subplots(4, 2, figsize=(16, 14), sharex=False)
+    fig.patch.set_facecolor(BG_FIG)
+
+    num_frames = data.get("num_frames", "?")
+    num_tracks = data.get("num_tracks", "?")
+    subtitle = "Global BA stages only" if global_only else "All optimization stages"
+    fig.suptitle(
+        f"BA Optimization History — {subtitle}\n"
+        f"({num_frames} frames, {num_tracks} tracks, {n} stages shown)",
+        fontsize=14, fontweight="bold", y=0.995,
+    )
+
     fig.text(
         0.985, 0.93, "\n".join(summary_lines),
         fontsize=8,
@@ -279,7 +289,6 @@ def plot_all(series, data, output_path):
             ax.set_xticklabels(xlabels, fontsize=6.5, rotation=45, ha="right")
             ax.set_xlim(0.5, n + 0.5)
 
-    # 最后一行才显示 x 轴标签说明
     for ax in axes[-1]:
         ax.set_xlabel("Optimization Stage", fontsize=8.5)
 
@@ -328,11 +337,18 @@ def main():
         default="stereo_calib/result/ba_history.png",
         help="输出图片路径（默认：stereo_calib/result/ba_history.png）",
     )
+    parser.add_argument(
+        "--all-stages",
+        action="store_true",
+        help="显示全部 optimization_history 阶段；默认只显示 Global BA 阶段",
+    )
     args = parser.parse_args()
 
     history, data = load_data(args.input)
+    if not args.all_stages:
+        history = filter_global_history(history)
     series = extract_series(history)
-    plot_all(series, data, args.output)
+    plot_all(series, data, args.output, global_only=not args.all_stages)
 
 
 if __name__ == "__main__":

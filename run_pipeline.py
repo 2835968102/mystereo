@@ -66,6 +66,8 @@ def parse_args():
                    help="KITTI RAW sequence 右目图像目录")
     p.add_argument("--pixel_tag", default="3px",
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
+    p.add_argument("--output_timestamp", default=None,
+                   help="输出文件名中的时间戳；默认使用当前时间（格式：YYYYmmdd_HHMMSS_microseconds）")
 
     # 流程控制
     flow = p.add_argument_group("流程控制")

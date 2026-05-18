@@ -81,4 +81,4 @@ postprocess:
       input_3px: stereo_calib/result/ba_results/{scene}_ba_result_le_3px.json
       input_2px: stereo_calib/result/ba_results/{scene}_ba_result_le_2px.json
       input_1px: stereo_calib/result/ba_results/{scene}_ba_result_le_1px.json
-    output: stereo_calib/result/{scene}_ba_threshold_comparison.png
+    output: stereo_calib/result/{scene}_{timestamp}_ba_threshold_comparison.png

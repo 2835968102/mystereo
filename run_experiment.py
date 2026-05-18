@@ -20,6 +20,8 @@ from typing import Any
 
 import yaml
 
+from stereo_calib_py.paths import PipelinePaths, make_output_timestamp, resolve_paths
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -178,12 +180,48 @@ def build_pipeline_args(
     return args
 
 
+def predict_pipeline_paths(pipeline_args: dict[str, Any]) -> PipelinePaths:
+    """用和 run_pipeline.py 相同的规则提前算出本次输出路径。"""
+    return resolve_paths(
+        scene=str(pipeline_args["scene"]),
+        pixel_tag=str(pipeline_args.get("pixel_tag", "3px")),
+        dataset_mode=str(pipeline_args.get("dataset_mode", "project")),
+        kitti_root_dir=pipeline_args.get("kitti_root_dir"),
+        match_json=pipeline_args.get("match_json"),
+        result_prefix=pipeline_args.get("result_prefix"),
+        gt_param_file=pipeline_args.get("gt_param_file"),
+        left_img_dir=pipeline_args.get("left_img_dir"),
+        right_img_dir=pipeline_args.get("right_img_dir"),
+        conf_thresh=pipeline_args.get("conf_thresh"),
+        nms_dist=pipeline_args.get("nms_dist"),
+        nn_thresh=pipeline_args.get("nn_thresh"),
+        skip_match=bool(pipeline_args.get("skip_match", False)),
+        skip_ba=bool(pipeline_args.get("skip_ba", False)),
+        output_timestamp=pipeline_args.get("output_timestamp"),
+        build_gt=False,
+    )
+
+
+def index_pipeline_output(
+    output_index: dict[str, Path],
+    label: str,
+    pipeline_args: dict[str, Any],
+    paths: PipelinePaths,
+) -> None:
+    """记录本次 run 的 BA 输出，供后处理通过 label/pixel_tag 查找。"""
+    output_index[label] = paths.ba_result_json
+    pixel_tag = pipeline_args.get("pixel_tag")
+    if pixel_tag:
+        output_index[str(pixel_tag)] = paths.ba_result_json
+        output_index[f"le_{pixel_tag}"] = paths.ba_result_json
+
+
 def run_pipeline_for_scene(
     scene: str,
     run_config: dict[str, Any],
     config: dict[str, Any],
     dry_run: bool,
-) -> None:
+) -> tuple[str, dict[str, Any], PipelinePaths]:
     """针对一个 scene/run 组合执行一次 run_pipeline.py。"""
     runner = config.get("runner", {})
     defaults = config.get("defaults", {})
@@ -197,19 +235,39 @@ def run_pipeline_for_scene(
 
     label = run_config.get("label", "run")
     pipeline_script = str(runner.get("pipeline_script", "run_pipeline.py"))
+    pipeline_args = build_pipeline_args(scene, default_args, run_args)
+    pipeline_args.setdefault("output_timestamp", make_output_timestamp())
+    paths = predict_pipeline_paths(pipeline_args)
+
     cmd = build_python_command(runner, pipeline_script)
-    cmd = append_cli_args(cmd, build_pipeline_args(scene, default_args, run_args))
+    cmd = append_cli_args(cmd, pipeline_args)
 
     print(f"\n========== Scene: {scene} | Run: {label} ==========", flush=True)
     started = time.monotonic()
     run_command(cmd, dry_run)
     print(f"Elapsed: {format_elapsed_time(time.monotonic() - started)}", flush=True)
+    return str(label), pipeline_args, paths
+
+
+def resolve_postprocess_input(
+    input_key: str,
+    template: str,
+    scene: str,
+    output_index: dict[str, Path],
+) -> str:
+    """优先使用本次实验刚生成的输出；找不到时回退到 YAML 模板。"""
+    selector = input_key.removeprefix("input_")
+    for candidate in (input_key, selector, f"le_{selector}"):
+        if candidate in output_index:
+            return str(output_index[candidate])
+    return str(template).format(scene=scene)
 
 
 def run_threshold_comparison(
     scene: str,
     postprocess: dict[str, Any],
     runner: dict[str, Any],
+    output_index: dict[str, Path],
     dry_run: bool,
 ) -> None:
     """为单个 scene 执行可选的 3px/2px/1px 对比图后处理。"""
@@ -219,13 +277,13 @@ def run_threshold_comparison(
 
     script = str(comparison["script"])
     inputs = comparison.get("inputs", {})
-    output = str(comparison["output"]).format(scene=scene)
+    output = str(comparison["output"]).format(scene=scene, timestamp=make_output_timestamp())
 
     cmd = build_python_command(runner, script)
     cmd.extend(["--scene", scene])
     for key, template in inputs.items():
         flag_name = key.replace("_", "-")
-        cmd.extend([f"--{flag_name}", str(template).format(scene=scene)])
+        cmd.extend([f"--{flag_name}", resolve_postprocess_input(key, str(template), scene, output_index)])
     cmd.extend(["--output", output])
 
     print(f"\n========== Scene: {scene} | Postprocess ==========", flush=True)
@@ -245,6 +303,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
     parser.add_argument("--no-build", action="store_true", help="Skip the build step from the config")
+    parser.add_argument("--conda-env", default=None, help="Override runner.conda_env from the config")
     parser.add_argument("--scene", action="append", help="Run only the selected scene; can be repeated")
     return parser.parse_args()
 
@@ -257,6 +316,8 @@ def main() -> int:
         config = load_config(to_project_path(args.config))
         if args.no_build:
             config.setdefault("build", {})["enabled"] = False
+        if args.conda_env:
+            config.setdefault("runner", {})["conda_env"] = args.conda_env
 
         scenes = args.scene or config.get("scenes", [])
         runs = config.get("runs", [])
@@ -269,12 +330,15 @@ def main() -> int:
         run_build(config, args.dry_run)
 
         for scene in scenes:
+            output_index: dict[str, Path] = {}
             for run_config in runs:
-                run_pipeline_for_scene(str(scene), run_config, config, args.dry_run)
+                label, pipeline_args, paths = run_pipeline_for_scene(str(scene), run_config, config, args.dry_run)
+                index_pipeline_output(output_index, label, pipeline_args, paths)
             run_threshold_comparison(
                 str(scene),
                 config.get("postprocess", {}),
                 config.get("runner", {}),
+                output_index,
                 args.dry_run,
             )
 

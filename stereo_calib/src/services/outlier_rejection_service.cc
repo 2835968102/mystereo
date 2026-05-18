@@ -8,6 +8,33 @@
 
 namespace stereocalib {
 
+namespace {
+
+size_t CountActiveObservations(const OutlierRejectionState& state) {
+  if (!state.tracks) {
+    return 0;
+  }
+
+  size_t count = 0;
+  for (const Track& track : *state.tracks) {
+    for (const TrackObservation& obs : track.observations) {
+      if (obs.rejected) {
+        continue;
+      }
+      if (state.active_frames &&
+          (obs.frame_idx < 0 ||
+           obs.frame_idx >= static_cast<int>(state.active_frames->size()) ||
+           !(*state.active_frames)[obs.frame_idx])) {
+        continue;
+      }
+      ++count;
+    }
+  }
+  return count;
+}
+
+}  // namespace
+
 int OutlierRejectionService::RejectOutliers(OutlierRejectionState& state,
                                             double threshold) {
   if (!state.frames || !state.tracks) {
@@ -85,11 +112,29 @@ OutlierRejectionResult OutlierRejectionService::RejectOutliersIterative(
     OutlierRejectionState& state,
     const OutlierRejectionConfig& config) {
   OutlierRejectionResult result;
-  
+  result.initial_observations = CountActiveObservations(state);
+  result.remaining_observations = result.initial_observations;
+
   for (int round = 0; round < config.max_rounds; ++round) {
+    const size_t observations_before = CountActiveObservations(state);
     int rejected = RejectOutliers(state, config.threshold);
+    const size_t remaining_observations = CountActiveObservations(state);
+
+    result.rounds.push_back({
+        round + 1,
+        observations_before,
+        rejected,
+        remaining_observations,
+    });
     result.rejected_count += rejected;
     result.total_rounds = round + 1;
+    result.remaining_observations = remaining_observations;
+
+    std::cout << "[Outlier Rejection] Round " << (round + 1)
+              << ": before=" << observations_before
+              << ", rejected=" << rejected
+              << ", remaining=" << remaining_observations
+              << std::endl;
     
     if (rejected == 0) {
       break;
