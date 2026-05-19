@@ -20,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from stereo_calib_py.config import PipelineConfig
 from stereo_calib_py.paths import PipelinePaths, make_output_timestamp, resolve_paths
 
 
@@ -182,24 +183,8 @@ def build_pipeline_args(
 
 def predict_pipeline_paths(pipeline_args: dict[str, Any]) -> PipelinePaths:
     """用和 run_pipeline.py 相同的规则提前算出本次输出路径。"""
-    return resolve_paths(
-        scene=str(pipeline_args["scene"]),
-        pixel_tag=str(pipeline_args.get("pixel_tag", "3px")),
-        dataset_mode=str(pipeline_args.get("dataset_mode", "project")),
-        kitti_root_dir=pipeline_args.get("kitti_root_dir"),
-        match_json=pipeline_args.get("match_json"),
-        result_prefix=pipeline_args.get("result_prefix"),
-        gt_param_file=pipeline_args.get("gt_param_file"),
-        left_img_dir=pipeline_args.get("left_img_dir"),
-        right_img_dir=pipeline_args.get("right_img_dir"),
-        conf_thresh=pipeline_args.get("conf_thresh"),
-        nms_dist=pipeline_args.get("nms_dist"),
-        nn_thresh=pipeline_args.get("nn_thresh"),
-        skip_match=bool(pipeline_args.get("skip_match", False)),
-        skip_ba=bool(pipeline_args.get("skip_ba", False)),
-        output_timestamp=pipeline_args.get("output_timestamp"),
-        build_gt=False,
-    )
+    # 只做路径预测，不生成 KITTI GT 文件；这样 dry-run 不会改动 result 目录。
+    return resolve_paths(PipelineConfig.from_mapping(pipeline_args))
 
 
 def index_pipeline_output(
