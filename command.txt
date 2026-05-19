@@ -1,4 +1,0 @@
-
-conda activate stereo-calib-vis
-
-python superpoint_stereo_match.py --left_img_dir /home/hello/pml/mycalib/blender-file/stereo_panoramic_01/image_00/data --right_img_dir /home/hello/pml/mycalib/blender-file/stereo_panoramic_01/image_01/data --weights /home/hello/pml/mycalib/matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth --output /home/hello/pml/mycalib/stereo_calib/result/match_points/panoramic_01_matches_raw.json

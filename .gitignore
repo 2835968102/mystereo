@@ -35,6 +35,9 @@ datasets/blender/
 
 # Misc
 *.log
+/command.txt
+/record.txt
+stereo_calib/scripts/match_point_test/*.txt
 
 # Python cache
 __pycache__/
