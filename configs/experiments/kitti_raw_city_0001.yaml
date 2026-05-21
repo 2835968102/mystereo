@@ -1,6 +1,6 @@
-# KITTI RAW City 2011_09_26_drive_0001_extract pipeline.
-# This mirrors run_kitti_raw_city_2011_09_26_drive_0001.sh in a config-driven form.
-name: kitti_raw_city_0001
+# KITTI RAW City 2011_09_26 sync drive batch pipeline.
+# This mirrors run_kitti_raw_city_2011_09_26_drive.sh in a config-driven form.
+name: kitti_raw_city_sync
 
 build:
   enabled: true
@@ -15,18 +15,13 @@ runner:
 defaults:
   pipeline_args:
     dataset_mode: kitti_raw_sequence
-    scene: kitti_city_2011_09_26_drive_0001_extract
-    result_prefix: kitti_city_2011_09_26_drive_0001_extract
-
-    left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_00/data
-    right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26_drive_0001_extract/2011_09_26/2011_09_26_drive_0001_extract/image_01/data
     gt_param_file: stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json
     init_param_file: stereo_calib/data/kitti_raw_00_01_init_params.txt
 
     conf_thresh: 0.2
     nms_dist: 15
     nn_thresh: 1
-    skip_match: true
+    skip_match: false
 
     max_iter: 40
     incremental_max_iter: 30
@@ -45,8 +40,54 @@ defaults:
     enable_per_frame_correction: true
 
 scenes:
-  - kitti_city_2011_09_26_drive_0001_extract
+  - kitti_city_2011_09_26_sync_batch
 
 runs:
-  - label: raw
-    pipeline_args: {}
+  - label: drive_0001_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0001_sync
+      result_prefix: kitti_city_2011_09_26_drive_0001_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0001_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0001_sync/image_01/data
+
+  - label: drive_0002_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0002_sync
+      result_prefix: kitti_city_2011_09_26_drive_0002_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0002_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0002_sync/image_01/data
+
+  - label: drive_0005_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0005_sync
+      result_prefix: kitti_city_2011_09_26_drive_0005_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0005_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0005_sync/image_01/data
+
+  - label: drive_0009_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0009_sync
+      result_prefix: kitti_city_2011_09_26_drive_0009_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0009_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0009_sync/image_01/data
+
+  - label: drive_0011_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0011_sync
+      result_prefix: kitti_city_2011_09_26_drive_0011_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0011_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0011_sync/image_01/data
+
+  - label: drive_0013_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0013_sync
+      result_prefix: kitti_city_2011_09_26_drive_0013_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0013_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0013_sync/image_01/data
+
+  - label: drive_0014_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0014_sync
+      result_prefix: kitti_city_2011_09_26_drive_0014_sync
+      left_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0014_sync/image_00/data
+      right_img_dir: /home/hello/pml/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0014_sync/image_01/data

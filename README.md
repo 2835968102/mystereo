@@ -15,10 +15,10 @@
 | 入口 | 用途 |
 |------|------|
 | `python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml` | 批量运行 panoramic 阈值对比实验 |
-| `python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml` | 批量运行 KITTI RAW 示例实验 |
+| `python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml` | 批量运行 KITTI RAW City sync drive 实验 |
 | `python3 run_pipeline.py ...` | 单次 scene / 单次参数组合 |
 | `./run_all_test.sh` | 兼容旧入口，薄包装到 panoramic YAML 实验 |
-| `./run_kitti_raw_city_2011_09_26_drive_0001.sh` | 兼容旧入口，薄包装到 KITTI RAW YAML 实验 |
+| `./run_kitti_raw_city_2011_09_26_drive.sh` | 兼容入口，薄包装到 KITTI RAW YAML 实验 |
 
 `legacy/` 中保留了旧版完整 shell 脚本，仅用于追溯历史运行方式；新增实验应放到 `configs/experiments/*.yaml`。
 
@@ -103,7 +103,7 @@ python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml
 python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml \
   --dry-run --no-build --scene panoramic_01
 
-# KITTI RAW 示例实验
+# KITTI RAW City sync drive 批量实验
 python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml
 
 # root PATH 找不到 conda 时，可覆盖环境名或在 YAML 中设置 conda_executable
@@ -245,7 +245,7 @@ bash scripts/check_project.sh
 - `run_pipeline.py`
 - `run_experiment.py`
 - `run_all_test.sh`
-- `run_kitti_raw_city_2011_09_26_drive_0001.sh`
+- `run_kitti_raw_city_2011_09_26_drive.sh`
 - `scripts/check_project.sh`
 
 其中两个 `.sh` 文件只是兼容旧命令的薄包装。包含完整旧流程的脚本放在 `legacy/`，不作为新实验的修改入口。
