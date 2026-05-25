@@ -46,7 +46,11 @@ int main(int argc, char** argv)
   const std::string kDefaultPosesPathB = "../data/camera_poses.json";
 
   OptimizationConfig config;
+  // KITTI 专用入口只负责读取匹配、初值、GT/位姿和命令行参数；
+  // 真正的增量注册、周期全局 BA、外点剔除都在 OptimizationCoordinator 中执行。
   config.fix_principal_point = false;
+  // KITTI 默认最终采用两阶段全局 BA：
+  // 先固定主点 cx/cy 求一个稳定解，再释放主点做小范围细调。
   config.enable_two_stage_final_global_ba = true;
 
   for (int i = 1; i < argc; ++i) {
@@ -201,6 +205,10 @@ int main(int argc, char** argv)
     coordinator.LoadFramePoses(input_poses_json);
   }
 
+  // 这里进入 KITTI BA 主流程：
+  //   1. 由匹配构建跨帧 tracks；
+  //   2. 逐帧加入 active set，并按间隔触发全局 BA；
+  //   3. 最后做外点剔除和两阶段全局 BA。
   OptimizationResult result = coordinator.RunIncrementalBA(input, config);
   if (!result.success) {
     std::cerr << "KITTI offline stereo BA did not pass the quality gate, writing best estimate anyway." << std::endl;

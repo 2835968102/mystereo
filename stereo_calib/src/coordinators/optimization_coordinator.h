@@ -42,6 +42,8 @@ struct OptimizationConfig {
   double focal_lower_scale = 0.5;
   double focal_upper_scale = 1.5;
   bool reset_camera_params_each_ba_round = false;
+  // Final global BA strategy. When true, final BA runs twice:
+  // first with principal point fixed, then with principal point free.
   bool enable_two_stage_final_global_ba = false;
   double max_reproj_error = 20.0;
   
