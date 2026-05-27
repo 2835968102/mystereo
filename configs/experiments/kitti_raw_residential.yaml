@@ -1,0 +1,244 @@
+# KITTI RAW residential all sync drive batch pipeline.
+name: kitti_raw_residential_all_sync
+
+build:
+  enabled: true
+  source_dir: stereo_calib
+  build_dir: build
+
+runner:
+  conda_env: stereo-calib-vis
+  python_executable: python
+  pipeline_script: run_pipeline.py
+
+defaults:
+  pipeline_args:
+    dataset_mode: kitti_raw_sequence
+    gt_param_file: stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json
+    init_param_file: stereo_calib/data/kitti_raw_00_01_init_params.txt
+
+    conf_thresh: 0.2
+    nms_dist: 15
+    nn_thresh: 1
+    skip_match: false
+
+    max_iter: 40
+    incremental_max_iter: 30
+    per_frame_max_iter: 5
+    global_opt_interval: 10
+    min_pair_inliers: 15
+    max_score: 0.5
+    min_track_len: 3
+    fix_distortion: true
+    baseline_prior: 100
+    tx_prior: 20
+    focal_prior: 1
+    focal_lower_scale: 0.2
+    focal_upper_scale: 3.0
+    outlier_threshold: 2.0
+    enable_per_frame_correction: true
+    enable_incremental_free_principal_point_refine: true
+    incremental_free_principal_point_max_iter: 8
+    min_active_frames_for_free_principal_point: 20
+    free_principal_point_every_n_global_ba: 2
+    free_principal_point_max_rmse_increase: 0.05
+
+scenes:
+  - kitti_residential_all_sync_batch
+
+runs:
+  - label: drive_0001_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0001_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0001_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0001_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0001_sync/image_01/data
+
+  - label: drive_0002_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0002_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0002_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0002_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0002_sync/image_01/data
+
+  - label: drive_0005_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0005_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0005_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0005_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0005_sync/image_01/data
+
+  - label: drive_0009_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0009_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0009_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0009_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0009_sync/image_01/data
+
+  - label: drive_0011_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0011_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0011_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0011_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0011_sync/image_01/data
+
+  - label: drive_0013_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0013_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0013_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0013_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0013_sync/image_01/data
+
+  - label: drive_0014_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0014_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0014_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0014_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0014_sync/image_01/data
+
+  - label: drive_0017_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0017_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0017_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0017_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0017_sync/image_01/data
+
+  - label: drive_0018_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0018_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0018_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0018_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0018_sync/image_01/data
+
+  - label: drive_0048_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0048_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0048_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0048_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0048_sync/image_01/data
+
+  - label: drive_0051_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0051_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0051_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0051_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0051_sync/image_01/data
+
+  - label: drive_0056_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0056_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0056_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0056_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0056_sync/image_01/data
+
+  - label: drive_0057_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0057_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0057_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0057_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0057_sync/image_01/data
+
+  - label: drive_0059_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0059_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0059_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0059_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0059_sync/image_01/data
+
+  - label: drive_0060_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0060_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0060_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0060_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0060_sync/image_01/data
+
+  - label: drive_0084_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0084_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0084_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0084_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0084_sync/image_01/data
+
+  - label: drive_0091_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0091_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0091_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0091_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0091_sync/image_01/data
+
+  - label: drive_0093_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0093_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0093_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0093_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0093_sync/image_01/data
+
+  - label: drive_0095_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0095_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0095_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0095_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0095_sync/image_01/data
+
+  - label: drive_0096_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0096_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0096_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0096_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0096_sync/image_01/data
+
+  - label: drive_0104_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0104_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0104_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0104_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0104_sync/image_01/data
+
+  - label: drive_0106_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0106_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0106_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0106_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0106_sync/image_01/data
+
+  - label: drive_0113_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0113_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0113_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0113_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0113_sync/image_01/data
+
+  - label: drive_0117_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_26_drive_0117_sync
+      result_prefix: kitti_residential_2011_09_26_drive_0117_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0117_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_26/2011_09_26_drive_0117_sync/image_01/data
+
+  - label: drive_0001_sync_2011_09_28
+    pipeline_args:
+      scene: kitti_residential_2011_09_28_drive_0001_sync
+      result_prefix: kitti_residential_2011_09_28_drive_0001_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_28/2011_09_28_drive_0001_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_28/2011_09_28_drive_0001_sync/image_01/data
+
+  - label: drive_0002_sync_2011_09_28
+    pipeline_args:
+      scene: kitti_residential_2011_09_28_drive_0002_sync
+      result_prefix: kitti_residential_2011_09_28_drive_0002_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_28/2011_09_28_drive_0002_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_28/2011_09_28_drive_0002_sync/image_01/data
+
+  - label: drive_0026_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_29_drive_0026_sync
+      result_prefix: kitti_residential_2011_09_29_drive_0026_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_29/2011_09_29_drive_0026_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_29/2011_09_29_drive_0026_sync/image_01/data
+
+  - label: drive_0071_sync
+    pipeline_args:
+      scene: kitti_residential_2011_09_29_drive_0071_sync
+      result_prefix: kitti_residential_2011_09_29_drive_0071_sync
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_29/2011_09_29_drive_0071_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/residential/2011_09_29/2011_09_29_drive_0071_sync/image_01/data
