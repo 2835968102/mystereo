@@ -3,7 +3,7 @@
 plot_ba_history.py — 绘制 BA 优化历史的所有参数误差曲线
 
 从 offline_ba_result.json 的 optimization_history 字段读取每次优化迭代的误差，
-绘制 8 张子图（重投影误差、旋转误差、左右相机焦距误差、基线误差、平移误差），
+绘制 10 张子图（重投影误差、旋转误差、左右相机焦距误差、主点误差、基线误差、平移误差），
 并在全局优化（Global BA）发生处标注红色星形和竖线。
 
 用法：
@@ -68,8 +68,12 @@ def extract_series(history):
     rot_err_deg   = []
     left_fx_err   = []
     left_fy_err   = []
+    left_cx_err   = []
+    left_cy_err   = []
     right_fx_err  = []
     right_fy_err  = []
+    right_cx_err  = []
+    right_cy_err  = []
     baseline_err  = []
     trans_err_x   = []
     trans_err_y   = []
@@ -94,8 +98,12 @@ def extract_series(history):
 
         left_fx_err.append(abs(lft.get("fx", float("nan"))))
         left_fy_err.append(abs(lft.get("fy", float("nan"))))
+        left_cx_err.append(abs(lft.get("cx", float("nan"))))
+        left_cy_err.append(abs(lft.get("cy", float("nan"))))
         right_fx_err.append(abs(rgt.get("fx", float("nan"))))
         right_fy_err.append(abs(rgt.get("fy", float("nan"))))
+        right_cx_err.append(abs(rgt.get("cx", float("nan"))))
+        right_cy_err.append(abs(rgt.get("cy", float("nan"))))
 
     idx = list(range(1, len(stages) + 1))
     global_mask = [is_global(s) for s in stages]
@@ -104,7 +112,9 @@ def extract_series(history):
         stages=stages, idx=idx, global_mask=global_mask,
         reproj=reproj, rot_err_deg=rot_err_deg,
         left_fx_err=left_fx_err, left_fy_err=left_fy_err,
+        left_cx_err=left_cx_err, left_cy_err=left_cy_err,
         right_fx_err=right_fx_err, right_fy_err=right_fy_err,
+        right_cx_err=right_cx_err, right_cy_err=right_cy_err,
         baseline_err=baseline_err,
         trans_err_x=trans_err_x, trans_err_y=trans_err_y, trans_err_z=trans_err_z,
     )
@@ -141,8 +151,12 @@ def build_summary(data: dict, series: dict) -> dict:
         "avg_rotation_error_deg": summary.get("avg_rotation_error_deg", finite_mean(series["rot_err_deg"])),
         "avg_left_fx_error_px": summary.get("avg_left_fx_error_px", finite_mean(series["left_fx_err"])),
         "avg_left_fy_error_px": summary.get("avg_left_fy_error_px", finite_mean(series["left_fy_err"])),
+        "avg_left_cx_error_px": summary.get("avg_left_cx_error_px", finite_mean(series["left_cx_err"])),
+        "avg_left_cy_error_px": summary.get("avg_left_cy_error_px", finite_mean(series["left_cy_err"])),
         "avg_right_fx_error_px": summary.get("avg_right_fx_error_px", finite_mean(series["right_fx_err"])),
         "avg_right_fy_error_px": summary.get("avg_right_fy_error_px", finite_mean(series["right_fy_err"])),
+        "avg_right_cx_error_px": summary.get("avg_right_cx_error_px", finite_mean(series["right_cx_err"])),
+        "avg_right_cy_error_px": summary.get("avg_right_cy_error_px", finite_mean(series["right_cy_err"])),
         "avg_baseline_error_m": summary.get("avg_baseline_error_m", finite_mean(series["baseline_err"])),
         "avg_trans_err_x_m": summary.get("avg_trans_err_x_m", finite_mean(series["trans_err_x"])),
         "avg_trans_err_y_m": summary.get("avg_trans_err_y_m", finite_mean(series["trans_err_y"])),
@@ -150,6 +164,10 @@ def build_summary(data: dict, series: dict) -> dict:
         "avg_focal_error_px": summary.get(
             "avg_focal_error_px",
             finite_mean(series["left_fx_err"] + series["left_fy_err"] + series["right_fx_err"] + series["right_fy_err"]),
+        ),
+        "avg_principal_point_error_px": summary.get(
+            "avg_principal_point_error_px",
+            finite_mean(series["left_cx_err"] + series["left_cy_err"] + series["right_cx_err"] + series["right_cy_err"]),
         ),
     }
 
@@ -220,18 +238,23 @@ def plot_all(series, data, output_path, global_only=True):
     summary_lines = [
         format_mean("Mean reproj", summary["avg_reproj_error_px"], "px"),
         format_mean("Mean focal", summary["avg_focal_error_px"], "px"),
+        format_mean("Mean principal", summary["avg_principal_point_error_px"], "px"),
         format_mean("Mean left fx", summary["avg_left_fx_error_px"], "px"),
         format_mean("Mean left fy", summary["avg_left_fy_error_px"], "px"),
+        format_mean("Mean left cx", summary["avg_left_cx_error_px"], "px"),
+        format_mean("Mean left cy", summary["avg_left_cy_error_px"], "px"),
         format_mean("Mean right fx", summary["avg_right_fx_error_px"], "px"),
         format_mean("Mean right fy", summary["avg_right_fy_error_px"], "px"),
+        format_mean("Mean right cx", summary["avg_right_cx_error_px"], "px"),
+        format_mean("Mean right cy", summary["avg_right_cy_error_px"], "px"),
         format_mean("Mean rotation", summary["avg_rotation_error_deg"], "deg"),
         format_mean("Mean baseline", summary["avg_baseline_error_m"], "m"),
         format_mean("Mean |Δtx|", summary["avg_trans_err_x_m"], "m"),
         format_mean("Mean |Δty|", summary["avg_trans_err_y_m"], "m"),
         format_mean("Mean |Δtz|", summary["avg_trans_err_z_m"], "m"),
     ]
-    # ── 画布：4 行 × 2 列 ─────────────────────────────────────────────
-    fig, axes = plt.subplots(4, 2, figsize=(16, 14), sharex=False)
+    # ── 画布：5 行 × 2 列 ─────────────────────────────────────────────
+    fig, axes = plt.subplots(5, 2, figsize=(16, 17), sharex=False)
     fig.patch.set_facecolor(BG_FIG)
 
     num_frames = data.get("num_frames", "?")
@@ -265,9 +288,25 @@ def plot_all(series, data, output_path, global_only=True):
          [format_mean("mean", summary["avg_right_fx_error_px"], "px")]),
         (axes[2, 1], series["right_fy_err"], "Right |Δfy|", "px", None,
          [format_mean("mean", summary["avg_right_fy_error_px"], "px")]),
-        (axes[3, 0], series["baseline_err"], "Baseline |Δt_x|", "m", None,
+        (axes[3, 0], series["left_cx_err"], "Left Principal Point", "px",
+         [
+             (series["left_cy_err"], "|Δcy|", "#2ca02c"),
+         ],
+         [
+             format_mean("|Δcx| mean", summary["avg_left_cx_error_px"], "px"),
+             format_mean("|Δcy| mean", summary["avg_left_cy_error_px"], "px"),
+         ]),
+        (axes[3, 1], series["right_cx_err"], "Right Principal Point", "px",
+         [
+             (series["right_cy_err"], "|Δcy|", "#2ca02c"),
+         ],
+         [
+             format_mean("|Δcx| mean", summary["avg_right_cx_error_px"], "px"),
+             format_mean("|Δcy| mean", summary["avg_right_cy_error_px"], "px"),
+         ]),
+        (axes[4, 0], series["baseline_err"], "Baseline |Δt_x|", "m", None,
          [format_mean("mean", summary["avg_baseline_error_m"], "m")]),
-        (axes[3, 1], series["trans_err_x"], "Translation Error", "m",
+        (axes[4, 1], series["trans_err_x"], "Translation Error", "m",
          [
              (series["trans_err_y"], "|Δty|", "#2ca02c"),
              (series["trans_err_z"], "|Δtz|", "#ff7f0e"),
@@ -299,7 +338,7 @@ def plot_all(series, data, output_path, global_only=True):
         plt.Line2D([0], [0], color=COLOR_GLOBAL, marker="*", markersize=9,
                    linewidth=0,   label="Global BA"),
     ]
-    axes[3, 1].legend(
+    axes[4, 1].legend(
         handles=handles + [
             plt.Line2D([0], [0], color=COLOR_LINE,    linewidth=1.5, label="|Δtx|"),
             plt.Line2D([0], [0], color="#2ca02c", linewidth=1.2,
