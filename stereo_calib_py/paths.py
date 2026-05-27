@@ -31,10 +31,12 @@ def make_output_timestamp() -> str:
 class CacheInputPaths:
     """Existing files selected when a step is skipped.
 
-    `--skip_match` / `--skip_ba` 需要读历史缓存；这些路径保留旧版固定命名。
+    `--skip_match` 优先复用 timestamp 新规则下最新的历史 matches；
+    没有候选时才保留固定命名路径用于报错提示。`--skip_ba` 仍读固定缓存名。
     """
 
     match_json: Path | None = None
+    match_json_candidates: tuple[Path, ...] = ()
     ba_result_json: Path | None = None
 
 
@@ -144,11 +146,22 @@ def _kitti_gt_paths(config: PipelineConfig, img_dir: Path, result_dir: Path, res
     )
 
 
+def _latest_existing_path(candidates: tuple[Path, ...]) -> Path | None:
+    existing = [path for path in candidates if path.exists()]
+    if not existing:
+        return None
+    return max(existing, key=lambda path: path.stat().st_mtime)
+
+
 def _select_match_json(config: PipelineConfig, cache: CacheInputPaths, new_outputs: NewOutputPaths) -> Path:
-    # 显式 --match_json 优先级最高；否则 skip_match 读旧缓存，正常运行写新输出。
+    # 显式 --match_json 优先级最高；否则 skip_match 直接复用
+    # timestamp 新规则下最新的历史 matches。
     if config.match_json:
         return Path(config.match_json)
     if config.skip_match and cache.match_json is not None:
+        latest_match = _latest_existing_path(cache.match_json_candidates)
+        if latest_match is not None:
+            return latest_match
         return cache.match_json
     return new_outputs.match_json
 
@@ -317,6 +330,9 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
 
     cache_inputs = CacheInputPaths(
         match_json=result_dir / "match_points" / f"{result_prefix}_{param_tag}_matches_raw.json",
+        match_json_candidates=tuple(
+            sorted((result_dir / "match_points").glob(f"{result_prefix}_*_matches_raw.json"))
+        ),
         ba_result_json=result_dir / "ba_results" / f"{result_prefix}_{param_tag}_ba_result_raw.json",
     )
     new_outputs = NewOutputPaths(
