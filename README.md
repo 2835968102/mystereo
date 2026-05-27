@@ -204,6 +204,11 @@ BA：
 | `--outlier_threshold` | BA 默认 | 外点剔除阈值，单位像素 |
 | `--outlier_rounds` | BA 默认 | 外点剔除最大轮数 |
 | `--enable_per_frame_correction` | 关闭 | 启用逐帧本地校正 |
+| `--enable_incremental_free_principal_point_refine` | 关闭 | 增量阶段外点剔除后追加短迭代释放主点全局 BA |
+| `--incremental_free_principal_point_max_iter` | BA 默认 | 增量阶段释放主点 refine 最大迭代次数 |
+| `--min_active_frames_for_free_principal_point` | BA 默认 | 触发增量释放主点 refine 的最小 active 帧数 |
+| `--free_principal_point_every_n_global_ba` | BA 默认 | 每多少次 interval global BA 触发一次释放主点 refine |
+| `--free_principal_point_max_rmse_increase` | BA 默认 | 释放主点 refine 允许的最大 RMSE 增量，超过则回退 |
 | `--reset_camera_params_each_ba_round` | 关闭 | 每轮 BA 前重置相机参数到初值 |
 
 ## 数据格式

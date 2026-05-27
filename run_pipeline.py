@@ -127,6 +127,16 @@ def parse_args():
                     help="最大可接受重投影误差")
     ba.add_argument("--enable_per_frame_correction", action="store_true",
                     help="启用逐帧本地校正（KITTI 专用 BA 支持）")
+    ba.add_argument("--enable_incremental_free_principal_point_refine", action="store_true",
+                    help="增量阶段外点剔除后追加短迭代释放主点全局 BA")
+    ba.add_argument("--incremental_free_principal_point_max_iter", type=int, default=None,
+                    help="增量阶段释放主点 refine 最大迭代次数")
+    ba.add_argument("--min_active_frames_for_free_principal_point", type=int, default=None,
+                    help="触发增量释放主点 refine 的最小 active 帧数")
+    ba.add_argument("--free_principal_point_every_n_global_ba", type=int, default=None,
+                    help="每多少次 interval global BA 触发一次释放主点 refine")
+    ba.add_argument("--free_principal_point_max_rmse_increase", type=float, default=None,
+                    help="释放主点 refine 允许的最大 RMSE 增量，超过则回退")
     ba.add_argument("--reset_camera_params_each_ba_round", action="store_true",
                     help="每轮 BA 前重置相机参数到初始值（KITTI 专用 BA 支持）")
 

@@ -14,6 +14,53 @@ void ResetCameraParamsToInitialization(BAState& state) {
   state.extrinsics = state.init_extrinsics;
 }
 
+struct BAStateSnapshot {
+  std::vector<double> intrinsics_left;
+  std::vector<double> intrinsics_right;
+  std::vector<double> extrinsics;
+  std::vector<std::vector<double>> frame_rvecs;
+  std::vector<std::vector<double>> frame_tvecs;
+  std::vector<std::vector<double>> track_points;
+};
+
+BAStateSnapshot SaveBAStateSnapshot(
+    const BAState& state,
+    const std::vector<FrameState>& frames,
+    const std::vector<Track>& tracks) {
+  BAStateSnapshot snapshot;
+  snapshot.intrinsics_left = state.intrinsics_left;
+  snapshot.intrinsics_right = state.intrinsics_right;
+  snapshot.extrinsics = state.extrinsics;
+  snapshot.frame_rvecs.reserve(frames.size());
+  snapshot.frame_tvecs.reserve(frames.size());
+  for (const FrameState& frame : frames) {
+    snapshot.frame_rvecs.push_back(frame.rvec);
+    snapshot.frame_tvecs.push_back(frame.tvec);
+  }
+  snapshot.track_points.reserve(tracks.size());
+  for (const Track& track : tracks) {
+    snapshot.track_points.push_back(track.point3d);
+  }
+  return snapshot;
+}
+
+void RestoreBAStateSnapshot(
+    const BAStateSnapshot& snapshot,
+    BAState& state,
+    std::vector<FrameState>& frames,
+    std::vector<Track>& tracks) {
+  state.intrinsics_left = snapshot.intrinsics_left;
+  state.intrinsics_right = snapshot.intrinsics_right;
+  state.extrinsics = snapshot.extrinsics;
+  for (size_t fi = 0; fi < frames.size() && fi < snapshot.frame_rvecs.size(); ++fi) {
+    frames[fi].rvec = snapshot.frame_rvecs[fi];
+    frames[fi].tvec = snapshot.frame_tvecs[fi];
+  }
+  for (size_t ti = 0; ti < tracks.size() && ti < snapshot.track_points.size(); ++ti) {
+    tracks[ti].point3d = snapshot.track_points[ti];
+  }
+}
+
 nlohmann::json BuildOutlierHistoryEntry(
     const std::string& stage,
     size_t registered_frames,
@@ -268,6 +315,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
 
   bool have_rmse = false;
   int successful_registrations = 0;
+  int interval_global_ba_count = 0;
 
   for (size_t i = 1; i < reg_order.size(); ++i) {
     const int frame_idx = reg_order[i];
@@ -306,7 +354,6 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     if (!is_interval_step && !is_last_registration) {
       continue;
     }
-
     if (config.reset_camera_params_each_ba_round) {
       // 实验开关：每轮全局 BA 前把相机参数拉回初值，只让当前 active set
       // 重新解释相机参数，便于比较“累积优化”和“每轮从初值开始”的差异。
@@ -325,6 +372,7 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     if (!ba_result.success) {
       continue;
     }
+    interval_global_ba_count++;
 
     if (!have_rmse) {
       result.init_reproj_error = ba_result.init_rmse;
@@ -361,6 +409,60 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
           state, active_frames, incremental_ba_config, -1);
       if (refined_ba_result.success) {
         ba_result = refined_ba_result;
+      }
+    }
+
+    const int active_frame_count =
+        static_cast<int>(std::count(active_frames.begin(), active_frames.end(), 1));
+    const int free_refine_interval = std::max(1, config.free_principal_point_every_n_global_ba);
+    const double max_free_refine_rmse_increase =
+        std::max(0.0, config.free_principal_point_max_rmse_increase);
+    const bool has_enough_active_frames =
+        active_frame_count >= config.min_active_frames_for_free_principal_point;
+    const bool is_scheduled_free_refine =
+        (interval_global_ba_count % free_refine_interval) == 0;
+    if (config.enable_incremental_free_principal_point_refine &&
+        has_enough_active_frames &&
+        is_scheduled_free_refine) {
+      BAStateSnapshot fixed_principal_point_snapshot =
+          SaveBAStateSnapshot(state, frames, tracks);
+      const double fixed_principal_point_rmse = ba_result.final_rmse;
+
+      BAConfig free_principal_point_config =
+          ToBAConfig(config, config.incremental_free_principal_point_max_iter);
+      free_principal_point_config.fix_principal_point = false;
+      BAResult free_principal_point_result = ba_service_->RunBundleAdjustment(
+          state, active_frames, free_principal_point_config, -1);
+
+      if (free_principal_point_result.success &&
+          free_principal_point_result.final_rmse <=
+              fixed_principal_point_rmse + max_free_refine_rmse_increase) {
+        ba_result = free_principal_point_result;
+        std::cout << "[Interval Free Principal Point Refine] registered_frames="
+                  << active_frame_count << "/" << reg_order.size()
+                  << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                  << free_principal_point_result.final_rmse << " px"
+                  << ", fixed_principal_point_rmse=" << fixed_principal_point_rmse
+                  << " px" << std::endl;
+
+        StereoCamera current = BuildCamera(state);
+        eval_service_->PrintCurrentVsGroundTruth(
+            "Interval Free Principal Point Refine - Registered Frame " + std::to_string(i + 1),
+            current);
+        eval_service_->RecordOptimizationStage(
+            "Interval Free Principal Point Refine - Registered Frame " + std::to_string(i + 1),
+            free_principal_point_result.final_rmse,
+            current);
+      } else {
+        RestoreBAStateSnapshot(fixed_principal_point_snapshot, state, frames, tracks);
+        const double attempted_rmse = free_principal_point_result.success
+                                          ? free_principal_point_result.final_rmse
+                                          : -1.0;
+        std::cout << "[Interval Free Principal Point Refine] rejected, registered_frames="
+                  << active_frame_count << "/" << reg_order.size()
+                  << ", fixed_principal_point_rmse=" << std::fixed << std::setprecision(4)
+                  << fixed_principal_point_rmse << " px"
+                  << ", attempted_rmse=" << attempted_rmse << " px" << std::endl;
       }
     }
 

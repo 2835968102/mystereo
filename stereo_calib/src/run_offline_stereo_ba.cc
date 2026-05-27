@@ -81,6 +81,16 @@ int main(int argc, char** argv)
       config.max_reproj_error = std::stod(argv[++i]);
     } else if (arg == "--baseline_prior" && i + 1 < argc) {
       config.baseline_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--enable_incremental_free_principal_point_refine") {
+      config.enable_incremental_free_principal_point_refine = true;
+    } else if (arg == "--incremental_free_principal_point_max_iter" && i + 1 < argc) {
+      config.incremental_free_principal_point_max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--min_active_frames_for_free_principal_point" && i + 1 < argc) {
+      config.min_active_frames_for_free_principal_point = std::stoi(argv[++i]);
+    } else if (arg == "--free_principal_point_every_n_global_ba" && i + 1 < argc) {
+      config.free_principal_point_every_n_global_ba = std::stoi(argv[++i]);
+    } else if (arg == "--free_principal_point_max_rmse_increase" && i + 1 < argc) {
+      config.free_principal_point_max_rmse_increase = std::stod(argv[++i]);
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {
       config.outlier_rejection_threshold = std::stod(argv[++i]);
     } else if (arg == "--outlier_rounds" && i + 1 < argc) {

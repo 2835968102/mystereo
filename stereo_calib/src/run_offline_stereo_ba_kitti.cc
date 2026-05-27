@@ -9,6 +9,7 @@
 #include "offline_ba_common.h"
 #include "stereo_eval.h"
 #include "stereo_io.h"
+#include <opencv2/core.hpp>
 
 using json = nlohmann::json;
 using namespace stereocalib;
@@ -26,6 +27,9 @@ void PrintUsage()
             << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
             << "[--fix_distortion] [KITTI default: optimize principal point after a fixed-principal-point final BA pass] [--aspect_ratio_prior 1.0] "
             << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
+            << "[--enable_incremental_free_principal_point_refine] [--incremental_free_principal_point_max_iter 8] "
+            << "[--min_active_frames_for_free_principal_point 20] [--free_principal_point_every_n_global_ba 2] "
+            << "[--free_principal_point_max_rmse_increase 0.05] "
             << "[--reset_camera_params_each_ba_round] "
             << "[--max_reproj_error 20.0] [--outlier_threshold 2.0] [--outlier_rounds 3]"
             << std::endl;
@@ -35,6 +39,9 @@ void PrintUsage()
 
 int main(int argc, char** argv)
 {
+  // Keep OpenCV RANSAC sampling deterministic when reusing the same matches.
+  cv::setRNGSeed(0);
+
   std::string input_path;
   std::string output_path;
   std::string gt_param_file;
@@ -101,6 +108,16 @@ int main(int argc, char** argv)
       config.focal_upper_scale = std::stod(argv[++i]);
     } else if (arg == "--enable_per_frame_correction") {
       config.enable_per_frame_correction = true;
+    } else if (arg == "--enable_incremental_free_principal_point_refine") {
+      config.enable_incremental_free_principal_point_refine = true;
+    } else if (arg == "--incremental_free_principal_point_max_iter" && i + 1 < argc) {
+      config.incremental_free_principal_point_max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--min_active_frames_for_free_principal_point" && i + 1 < argc) {
+      config.min_active_frames_for_free_principal_point = std::stoi(argv[++i]);
+    } else if (arg == "--free_principal_point_every_n_global_ba" && i + 1 < argc) {
+      config.free_principal_point_every_n_global_ba = std::stoi(argv[++i]);
+    } else if (arg == "--free_principal_point_max_rmse_increase" && i + 1 < argc) {
+      config.free_principal_point_max_rmse_increase = std::stod(argv[++i]);
     } else if (arg == "--reset_camera_params_each_ba_round") {
       config.reset_camera_params_each_ba_round = true;
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {

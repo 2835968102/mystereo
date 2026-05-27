@@ -165,6 +165,8 @@ def run_ba_if_needed(config: PipelineConfig, paths: PipelinePaths) -> None:
 
         if config.enable_per_frame_correction:
             cmd.append("--enable_per_frame_correction")
+        if config.enable_incremental_free_principal_point_refine:
+            cmd.append("--enable_incremental_free_principal_point_refine")
         if config.reset_camera_params_each_ba_round:
             cmd.append("--reset_camera_params_each_ba_round")
 

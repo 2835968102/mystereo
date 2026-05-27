@@ -45,6 +45,11 @@ struct OptimizationConfig {
   // Final global BA strategy. When true, final BA runs twice:
   // first with principal point fixed, then with principal point free.
   bool enable_two_stage_final_global_ba = false;
+  bool enable_incremental_free_principal_point_refine = false;
+  int incremental_free_principal_point_max_iter = 8;
+  int min_active_frames_for_free_principal_point = 20;
+  int free_principal_point_every_n_global_ba = 2;
+  double free_principal_point_max_rmse_increase = 0.05;
   double max_reproj_error = 20.0;
   
   // Outlier rejection

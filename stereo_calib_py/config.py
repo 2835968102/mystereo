@@ -63,6 +63,11 @@ class PipelineConfig:
     outlier_rounds: int | None = None
     max_reproj_error: float | None = None
     enable_per_frame_correction: bool = False
+    enable_incremental_free_principal_point_refine: bool = False
+    incremental_free_principal_point_max_iter: int | None = None
+    min_active_frames_for_free_principal_point: int | None = None
+    free_principal_point_every_n_global_ba: int | None = None
+    free_principal_point_max_rmse_increase: float | None = None
     reset_camera_params_each_ba_round: bool = False
 
     @classmethod
@@ -106,4 +111,8 @@ class PipelineConfig:
             "outlier_threshold": self.outlier_threshold,
             "outlier_rounds": self.outlier_rounds,
             "max_reproj_error": self.max_reproj_error,
+            "incremental_free_principal_point_max_iter": self.incremental_free_principal_point_max_iter,
+            "min_active_frames_for_free_principal_point": self.min_active_frames_for_free_principal_point,
+            "free_principal_point_every_n_global_ba": self.free_principal_point_every_n_global_ba,
+            "free_principal_point_max_rmse_increase": self.free_principal_point_max_rmse_increase,
         }
