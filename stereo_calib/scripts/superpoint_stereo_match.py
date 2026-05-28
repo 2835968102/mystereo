@@ -211,7 +211,7 @@ def nn_match_two_way(desc1: np.ndarray, desc2: np.ndarray,
     -------
     matches : 3×M  [idx1, idx2, distance]
     """
-    if desc1.shape[1] == 0 or desc2.shape[1] == 0:
+    if desc1.shape[1] == 0 or desc2.shape[1] < 2:
         return np.zeros((3, 0))
 
     dmat = np.sqrt(np.clip(2 - 2 * (desc1.T @ desc2), 0, None))   # N1×N2
@@ -220,8 +220,19 @@ def nn_match_two_way(desc1: np.ndarray, desc2: np.ndarray,
     idx_21 = np.argmin(dmat, axis=0)   # best match in desc1 for each desc2
     scores = dmat[np.arange(len(idx_12)), idx_12]
 
+    # Lowe ratio / margin test:
+    # 1) best match must be clearly better than the second-best candidate;
+    # 2) this rejects ambiguous descriptors from repeated structures.
+    #
+    # We only compute the two smallest distances per row, so the added cost stays small.
+    second_scores = np.partition(dmat, 1, axis=1)[:, 1]
+    ratio_thresh = 0.80
+    margin_thresh = 0.05
+
     mutual = (np.arange(len(idx_12)) == idx_21[idx_12])
-    good   = (scores < nn_thresh) & mutual
+    ratio_ok = scores / (second_scores + 1e-8) < ratio_thresh
+    margin_ok = (second_scores - scores) > margin_thresh
+    good = (scores < nn_thresh) & mutual & ratio_ok & margin_ok
 
     m_idx1 = np.where(good)[0]
     m_idx2 = idx_12[good]
