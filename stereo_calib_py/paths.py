@@ -322,10 +322,12 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
     left_img_dir = Path(config.left_img_dir) if config.left_img_dir else img_dir / "image_00" / "data"
     right_img_dir = Path(config.right_img_dir) if config.right_img_dir else img_dir / "image_01" / "data"
     output_prefix = _timestamped_prefix(result_prefix, config)
+    matcher_tag = "no_ratio_margin" if config.disable_ratio_margin else "ratio_margin"
     param_tag = (
         f"conf_thresh={format_tag_value(config.conf_thresh)}"
         f"_nms_dist={format_tag_value(config.nms_dist)}"
         f"_nn_thresh={format_tag_value(config.nn_thresh)}"
+        f"_{matcher_tag}"
     )
 
     cache_inputs = CacheInputPaths(

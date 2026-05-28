@@ -9,6 +9,7 @@ configs/experiments/*.yaml 里维护。
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import shutil
@@ -33,6 +34,13 @@ def format_elapsed_time(total_seconds: float) -> str:
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def format_seconds(value: float | None) -> str:
+    """Format a floating-point seconds value for compact tables."""
+    if value is None:
+        return "-"
+    return f"{value:.3f}s"
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -155,6 +163,269 @@ def run_command(cmd: list[str], dry_run: bool) -> None:
         raise RuntimeError(f"Command failed with exit code {completed.returncode}")
 
 
+def count_png_images(path_value: Any) -> int | None:
+    """Count PNG files in an image directory; return None when not applicable."""
+    if not path_value:
+        return None
+    path = Path(path_value)
+    if not path.exists():
+        return None
+    return len(list(path.glob("*.png")))
+
+
+def classify_match_pair(pair: dict[str, Any]) -> str:
+    """Classify a match pair as LR/LL/RR/RL using KITTI raw metadata when present."""
+    a_is_left = pair.get("image_a_is_left")
+    b_is_left = pair.get("image_b_is_left")
+    if isinstance(a_is_left, bool) and isinstance(b_is_left, bool):
+        return ("L" if a_is_left else "R") + ("L" if b_is_left else "R")
+
+    image_a = str(pair.get("image_a", pair.get("left_image", "")))
+    image_b = str(pair.get("image_b", pair.get("right_image", "")))
+    a_side = "L" if "image_00" in image_a or image_a.startswith("left") else "R"
+    b_side = "L" if "image_00" in image_b or image_b.startswith("left") else "R"
+    return a_side + b_side
+
+
+def read_match_stats(match_json: Path) -> dict[str, Any]:
+    """Read pair/match counts from a matches JSON file."""
+    stats: dict[str, Any] = {
+        "match_pair_count": None,
+        "total_match_count": None,
+        "lr_pair_count": None,
+        "ll_pair_count": None,
+        "rr_pair_count": None,
+    }
+    if not match_json.exists():
+        return stats
+
+    with match_json.open(encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = data.get("pairs", [])
+    pair_type_counts: dict[str, int] = {}
+    total_matches = 0
+    for pair in pairs:
+        ptype = classify_match_pair(pair)
+        pair_type_counts[ptype] = pair_type_counts.get(ptype, 0) + 1
+        total_matches += len(pair.get("matches", []))
+
+    stats.update(
+        {
+            "match_pair_count": len(pairs),
+            "total_match_count": total_matches,
+            "lr_pair_count": pair_type_counts.get("LR", 0),
+            "ll_pair_count": pair_type_counts.get("LL", 0),
+            "rr_pair_count": pair_type_counts.get("RR", 0),
+        }
+    )
+    return stats
+
+
+def read_ba_stats(ba_result_json: Path) -> dict[str, Any]:
+    """Read compact quality/scale stats from a BA result JSON file."""
+    stats: dict[str, Any] = {
+        "ba_success": None,
+        "final_reproj_error": None,
+        "num_frames": None,
+        "num_tracks": None,
+        "num_observations": None,
+    }
+    if not ba_result_json.exists():
+        return stats
+
+    with ba_result_json.open(encoding="utf-8") as f:
+        data = json.load(f)
+    stats.update(
+        {
+            "ba_success": data.get("success"),
+            "final_reproj_error": data.get("final_reproj_error"),
+            "num_frames": data.get("num_frames"),
+            "num_tracks": data.get("num_tracks"),
+            "num_observations": data.get("num_observations"),
+        }
+    )
+    return stats
+
+
+def safe_divide(numerator: float | int | None, denominator: float | int | None) -> float | None:
+    if numerator is None or denominator in (None, 0):
+        return None
+    return float(numerator) / float(denominator)
+
+
+def rounded(value: Any, digits: int = 3) -> Any:
+    """Round floats for human-facing JSON without changing other values."""
+    if isinstance(value, float):
+        return round(value, digits)
+    return value
+
+
+def relative_output_path(path_value: Any) -> str | None:
+    """Make output paths shorter in experiment summaries."""
+    if not path_value:
+        return None
+    path = Path(str(path_value))
+    try:
+        return str(path.resolve().relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def build_run_summary_record(
+    scene: str,
+    label: str,
+    pipeline_args: dict[str, Any],
+    paths: PipelinePaths,
+    elapsed_seconds: float,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Create one run-level timing/count record for comparison."""
+    left_images = count_png_images(pipeline_args.get("left_img_dir"))
+    right_images = count_png_images(pipeline_args.get("right_img_dir"))
+    stereo_image_pairs = min(left_images, right_images) if left_images is not None and right_images is not None else None
+
+    record: dict[str, Any] = {
+        "scene": scene,
+        "label": label,
+        "result_prefix": pipeline_args.get("result_prefix", pipeline_args.get("scene")),
+        "dataset_mode": pipeline_args.get("dataset_mode"),
+        "left_image_count": left_images,
+        "right_image_count": right_images,
+        "stereo_image_pair_count": stereo_image_pairs,
+        "elapsed_seconds": elapsed_seconds,
+        "elapsed_hms": format_elapsed_time(elapsed_seconds),
+        "match_json": str(paths.match_json),
+        "ba_result_json": str(paths.ba_result_json),
+    }
+
+    if not dry_run:
+        record.update(read_match_stats(paths.match_json))
+        record.update(read_ba_stats(paths.ba_result_json))
+    else:
+        record.update(
+            {
+                "match_pair_count": None,
+                "total_match_count": None,
+                "lr_pair_count": None,
+                "ll_pair_count": None,
+                "rr_pair_count": None,
+                "ba_success": None,
+                "final_reproj_error": None,
+                "num_frames": None,
+                "num_tracks": None,
+                "num_observations": None,
+            }
+        )
+
+    record["seconds_per_match_pair"] = safe_divide(record["elapsed_seconds"], record["match_pair_count"])
+    record["seconds_per_stereo_pair"] = safe_divide(record["elapsed_seconds"], record["stereo_image_pair_count"])
+    record["seconds_per_match"] = safe_divide(record["elapsed_seconds"], record["total_match_count"])
+    return record
+
+
+def print_run_summary_record(record: dict[str, Any]) -> None:
+    """Print a compact one-line summary after each run."""
+    print(
+        "Run summary: "
+        f"stereo_pairs={record.get('stereo_image_pair_count') or '-'} "
+        f"match_pairs={record.get('match_pair_count') or '-'} "
+        f"matches={record.get('total_match_count') or '-'} "
+        f"elapsed={record['elapsed_hms']} "
+        f"per_match_pair={format_seconds(record.get('seconds_per_match_pair'))} "
+        f"per_stereo_pair={format_seconds(record.get('seconds_per_stereo_pair'))}",
+        flush=True,
+    )
+
+
+def write_experiment_summary(
+    experiment_name: str,
+    records: list[dict[str, Any]],
+    total_elapsed_seconds: float,
+) -> Path:
+    """Persist a readable run timing/count summary as JSON."""
+    output_dir = PROJECT_ROOT / "stereo_calib/result/experiment_summaries"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"{experiment_name}_{make_output_timestamp()}_summary.json"
+
+    total_stereo_pairs = sum(record.get("stereo_image_pair_count") or 0 for record in records)
+    total_match_pairs = sum(record.get("match_pair_count") or 0 for record in records)
+    total_matches = sum(record.get("total_match_count") or 0 for record in records)
+
+    readable_runs = []
+    for record in records:
+        readable_runs.append(
+            {
+                "label": record.get("label"),
+                "scene": record.get("result_prefix"),
+                "batch_scene": record.get("scene"),
+                "dataset_mode": record.get("dataset_mode"),
+                "time": {
+                    "elapsed": record.get("elapsed_hms"),
+                    "seconds": rounded(record.get("elapsed_seconds")),
+                    "seconds_per_stereo_frame_pair": rounded(record.get("seconds_per_stereo_pair")),
+                    "seconds_per_matched_image_pair": rounded(record.get("seconds_per_match_pair")),
+                    "seconds_per_match_point": rounded(record.get("seconds_per_match"), 6),
+                },
+                "images": {
+                    "left": record.get("left_image_count"),
+                    "right": record.get("right_image_count"),
+                    "stereo_frame_pairs": record.get("stereo_image_pair_count"),
+                },
+                "matched_image_pairs": {
+                    "total": record.get("match_pair_count"),
+                    "LR_same_frame": record.get("lr_pair_count"),
+                    "LL_adjacent": record.get("ll_pair_count"),
+                    "RR_adjacent": record.get("rr_pair_count"),
+                },
+                "matches": {
+                    "total_points": record.get("total_match_count"),
+                },
+                "ba": {
+                    "success": record.get("ba_success"),
+                    "final_reproj_error_px": rounded(record.get("final_reproj_error"), 6),
+                    "frames": record.get("num_frames"),
+                    "tracks": record.get("num_tracks"),
+                    "observations": record.get("num_observations"),
+                },
+                "outputs": {
+                    "matches": relative_output_path(record.get("match_json")),
+                    "ba_result": relative_output_path(record.get("ba_result_json")),
+                },
+            }
+        )
+
+    with json_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "experiment": experiment_name,
+                "total": {
+                    "elapsed": format_elapsed_time(total_elapsed_seconds),
+                    "seconds": rounded(total_elapsed_seconds),
+                    "run_count": len(records),
+                    "stereo_frame_pairs": total_stereo_pairs,
+                    "matched_image_pairs": total_match_pairs,
+                    "match_points": total_matches,
+                    "seconds_per_stereo_frame_pair": rounded(
+                        safe_divide(total_elapsed_seconds, total_stereo_pairs)
+                    ),
+                    "seconds_per_matched_image_pair": rounded(
+                        safe_divide(total_elapsed_seconds, total_match_pairs)
+                    ),
+                    "seconds_per_match_point": rounded(
+                        safe_divide(total_elapsed_seconds, total_matches),
+                        6,
+                    ),
+                },
+                "runs": readable_runs,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    return json_path
+
+
 def run_build(config: dict[str, Any], dry_run: bool) -> None:
     """执行配置里的 CMake 编译步骤。"""
     build = config.get("build", {})
@@ -206,7 +477,7 @@ def run_pipeline_for_scene(
     run_config: dict[str, Any],
     config: dict[str, Any],
     dry_run: bool,
-) -> tuple[str, dict[str, Any], PipelinePaths]:
+) -> tuple[str, dict[str, Any], PipelinePaths, float]:
     """针对一个 scene/run 组合执行一次 run_pipeline.py。"""
     runner = config.get("runner", {})
     defaults = config.get("defaults", {})
@@ -230,8 +501,9 @@ def run_pipeline_for_scene(
     print(f"\n========== Scene: {scene} | Run: {label} ==========", flush=True)
     started = time.monotonic()
     run_command(cmd, dry_run)
-    print(f"Elapsed: {format_elapsed_time(time.monotonic() - started)}", flush=True)
-    return str(label), pipeline_args, paths
+    elapsed_seconds = time.monotonic() - started
+    print(f"Elapsed: {format_elapsed_time(elapsed_seconds)}", flush=True)
+    return str(label), pipeline_args, paths, elapsed_seconds
 
 
 def resolve_postprocess_input(
@@ -296,6 +568,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     started = time.monotonic()
+    run_records: list[dict[str, Any]] = []
+    experiment_name = Path(args.config).stem
 
     try:
         config = load_config(to_project_path(args.config))
@@ -311,14 +585,30 @@ def main() -> int:
         if not runs:
             raise ValueError("No runs configured")
 
-        print(f"Experiment: {config.get('name', Path(args.config).stem)}", flush=True)
+        experiment_name = str(config.get("name", Path(args.config).stem))
+        print(f"Experiment: {experiment_name}", flush=True)
         run_build(config, args.dry_run)
 
         for scene in scenes:
             output_index: dict[str, Path] = {}
             for run_config in runs:
-                label, pipeline_args, paths = run_pipeline_for_scene(str(scene), run_config, config, args.dry_run)
+                label, pipeline_args, paths, elapsed_seconds = run_pipeline_for_scene(
+                    str(scene),
+                    run_config,
+                    config,
+                    args.dry_run,
+                )
                 index_pipeline_output(output_index, label, pipeline_args, paths)
+                record = build_run_summary_record(
+                    str(scene),
+                    label,
+                    pipeline_args,
+                    paths,
+                    elapsed_seconds,
+                    args.dry_run,
+                )
+                run_records.append(record)
+                print_run_summary_record(record)
             run_threshold_comparison(
                 str(scene),
                 config.get("postprocess", {}),
@@ -331,7 +621,15 @@ def main() -> int:
         print(f"\nExperiment failed: {exc}", file=sys.stderr)
         return 1
     finally:
-        print(f"\nTotal elapsed: {format_elapsed_time(time.monotonic() - started)}", flush=True)
+        total_elapsed_seconds = time.monotonic() - started
+        if run_records and not args.dry_run:
+            json_path = write_experiment_summary(
+                experiment_name,
+                run_records,
+                total_elapsed_seconds,
+            )
+            print(f"\nExperiment summary JSON: {json_path}", flush=True)
+        print(f"\nTotal elapsed: {format_elapsed_time(total_elapsed_seconds)}", flush=True)
 
     return 0
 

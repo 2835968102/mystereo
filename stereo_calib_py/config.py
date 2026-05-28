@@ -42,6 +42,7 @@ class PipelineConfig:
     nn_thresh: float = 0.7
     conf_thresh: float = 0.015
     nms_dist: int = 4
+    disable_ratio_margin: bool = False
     cuda: bool = False
 
     # Bundle Adjustment options.

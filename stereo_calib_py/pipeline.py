@@ -108,6 +108,8 @@ def run_match_if_needed(config: PipelineConfig, paths: PipelinePaths) -> None:
                 "--nms_dist",
                 str(config.nms_dist),
             ]
+        if config.disable_ratio_margin:
+            cmd.append("--disable_ratio_margin")
         # CUDA 只影响 Python SuperPoint 推理，不影响后续 C++ BA。
         if config.cuda:
             cmd.append("--cuda")

@@ -200,7 +200,8 @@ class SuperPointFrontend:
 # ---------------------------------------------------------------------------
 
 def nn_match_two_way(desc1: np.ndarray, desc2: np.ndarray,
-                     nn_thresh: float) -> np.ndarray:
+                     nn_thresh: float,
+                     use_ratio_margin: bool = True) -> np.ndarray:
     """
     Parameters
     ----------
@@ -211,7 +212,7 @@ def nn_match_two_way(desc1: np.ndarray, desc2: np.ndarray,
     -------
     matches : 3×M  [idx1, idx2, distance]
     """
-    if desc1.shape[1] == 0 or desc2.shape[1] < 2:
+    if desc1.shape[1] == 0 or desc2.shape[1] == 0:
         return np.zeros((3, 0))
 
     dmat = np.sqrt(np.clip(2 - 2 * (desc1.T @ desc2), 0, None))   # N1×N2
@@ -220,19 +221,23 @@ def nn_match_two_way(desc1: np.ndarray, desc2: np.ndarray,
     idx_21 = np.argmin(dmat, axis=0)   # best match in desc1 for each desc2
     scores = dmat[np.arange(len(idx_12)), idx_12]
 
-    # Lowe ratio / margin test:
-    # 1) best match must be clearly better than the second-best candidate;
-    # 2) this rejects ambiguous descriptors from repeated structures.
-    #
-    # We only compute the two smallest distances per row, so the added cost stays small.
-    second_scores = np.partition(dmat, 1, axis=1)[:, 1]
-    ratio_thresh = 0.80
-    margin_thresh = 0.05
-
     mutual = (np.arange(len(idx_12)) == idx_21[idx_12])
-    ratio_ok = scores / (second_scores + 1e-8) < ratio_thresh
-    margin_ok = (second_scores - scores) > margin_thresh
-    good = (scores < nn_thresh) & mutual & ratio_ok & margin_ok
+    good = (scores < nn_thresh) & mutual
+
+    if use_ratio_margin:
+        if desc2.shape[1] < 2:
+            return np.zeros((3, 0))
+        # Lowe ratio / margin test:
+        # 1) best match must be clearly better than the second-best candidate;
+        # 2) this rejects ambiguous descriptors from repeated structures.
+        #
+        # We only compute the two smallest distances per row, so the added cost stays small.
+        second_scores = np.partition(dmat, 1, axis=1)[:, 1]
+        ratio_thresh = 0.80
+        margin_thresh = 0.05
+        ratio_ok = scores / (second_scores + 1e-8) < ratio_thresh
+        margin_ok = (second_scores - scores) > margin_thresh
+        good = good & ratio_ok & margin_ok
 
     m_idx1 = np.where(good)[0]
     m_idx2 = idx_12[good]
@@ -276,6 +281,8 @@ def parse_args():
                    help='Keypoint confidence threshold (default: 0.015)')
     p.add_argument('--nms_dist', type=int, default=4,
                    help='NMS suppression radius in pixels (default: 4)')
+    p.add_argument('--disable_ratio_margin', action='store_true',
+                   help='Disable Lowe ratio / margin filtering and use mutual nearest + nn_thresh only')
     p.add_argument('--cuda', action='store_true',
                    help='Use CUDA if available')
     return p.parse_args()
@@ -413,7 +420,12 @@ def main():
         pts_a, desc_a = get_feats(rec_a['path'])
         pts_b, desc_b = get_feats(rec_b['path'])
 
-        matches = nn_match_two_way(desc_a, desc_b, args.nn_thresh)
+        matches = nn_match_two_way(
+            desc_a,
+            desc_b,
+            args.nn_thresh,
+            use_ratio_margin=not args.disable_ratio_margin,
+        )
         n_matches = matches.shape[1]
         total_matches += n_matches
         print(f'kpts A={pts_a.shape[1]}  B={pts_b.shape[1]}  matches={n_matches}')

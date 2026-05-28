@@ -86,6 +86,8 @@ def parse_args():
                     help="关键点置信度阈值")
     sp.add_argument("--nms_dist",     type=int,   default=4,
                     help="NMS 抑制半径（像素）")
+    sp.add_argument("--disable_ratio_margin", action="store_true",
+                    help="关闭 Lowe ratio / margin 过滤，只使用 mutual nearest + nn_thresh")
     sp.add_argument("--cuda",         action="store_true",
                     help="SuperPoint 推理使用 CUDA")
 
