@@ -145,29 +145,30 @@ def format_mean(label: str, value, unit: str) -> str:
 
 
 def build_summary(data: dict, series: dict) -> dict:
-    summary = data.get("summary") or {}
+    # Keep the displayed mean values consistent with the plotted series.
+    # The result JSON summary is computed from the full optimization history,
+    # while this script usually filters the plot to Global BA stages only.
+    # Recomputing here avoids mixing hidden per-frame stages into visible means.
     return {
-        "avg_reproj_error_px": summary.get("avg_reproj_error_px", finite_mean(series["reproj"])),
-        "avg_rotation_error_deg": summary.get("avg_rotation_error_deg", finite_mean(series["rot_err_deg"])),
-        "avg_left_fx_error_px": summary.get("avg_left_fx_error_px", finite_mean(series["left_fx_err"])),
-        "avg_left_fy_error_px": summary.get("avg_left_fy_error_px", finite_mean(series["left_fy_err"])),
-        "avg_left_cx_error_px": summary.get("avg_left_cx_error_px", finite_mean(series["left_cx_err"])),
-        "avg_left_cy_error_px": summary.get("avg_left_cy_error_px", finite_mean(series["left_cy_err"])),
-        "avg_right_fx_error_px": summary.get("avg_right_fx_error_px", finite_mean(series["right_fx_err"])),
-        "avg_right_fy_error_px": summary.get("avg_right_fy_error_px", finite_mean(series["right_fy_err"])),
-        "avg_right_cx_error_px": summary.get("avg_right_cx_error_px", finite_mean(series["right_cx_err"])),
-        "avg_right_cy_error_px": summary.get("avg_right_cy_error_px", finite_mean(series["right_cy_err"])),
-        "avg_baseline_error_m": summary.get("avg_baseline_error_m", finite_mean(series["baseline_err"])),
-        "avg_trans_err_x_m": summary.get("avg_trans_err_x_m", finite_mean(series["trans_err_x"])),
-        "avg_trans_err_y_m": summary.get("avg_trans_err_y_m", finite_mean(series["trans_err_y"])),
-        "avg_trans_err_z_m": summary.get("avg_trans_err_z_m", finite_mean(series["trans_err_z"])),
-        "avg_focal_error_px": summary.get(
-            "avg_focal_error_px",
-            finite_mean(series["left_fx_err"] + series["left_fy_err"] + series["right_fx_err"] + series["right_fy_err"]),
+        "avg_reproj_error_px": finite_mean(series["reproj"]),
+        "avg_rotation_error_deg": finite_mean(series["rot_err_deg"]),
+        "avg_left_fx_error_px": finite_mean(series["left_fx_err"]),
+        "avg_left_fy_error_px": finite_mean(series["left_fy_err"]),
+        "avg_left_cx_error_px": finite_mean(series["left_cx_err"]),
+        "avg_left_cy_error_px": finite_mean(series["left_cy_err"]),
+        "avg_right_fx_error_px": finite_mean(series["right_fx_err"]),
+        "avg_right_fy_error_px": finite_mean(series["right_fy_err"]),
+        "avg_right_cx_error_px": finite_mean(series["right_cx_err"]),
+        "avg_right_cy_error_px": finite_mean(series["right_cy_err"]),
+        "avg_baseline_error_m": finite_mean(series["baseline_err"]),
+        "avg_trans_err_x_m": finite_mean(series["trans_err_x"]),
+        "avg_trans_err_y_m": finite_mean(series["trans_err_y"]),
+        "avg_trans_err_z_m": finite_mean(series["trans_err_z"]),
+        "avg_focal_error_px": finite_mean(
+            series["left_fx_err"] + series["left_fy_err"] + series["right_fx_err"] + series["right_fy_err"]
         ),
-        "avg_principal_point_error_px": summary.get(
-            "avg_principal_point_error_px",
-            finite_mean(series["left_cx_err"] + series["left_cy_err"] + series["right_cx_err"] + series["right_cy_err"]),
+        "avg_principal_point_error_px": finite_mean(
+            series["left_cx_err"] + series["left_cy_err"] + series["right_cx_err"] + series["right_cy_err"]
         ),
     }
 
