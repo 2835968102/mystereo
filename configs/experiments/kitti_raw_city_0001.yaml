@@ -18,8 +18,8 @@ defaults:
     gt_param_file: stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json
     init_param_file: stereo_calib/data/kitti_raw_00_01_init_params.txt
 
-    conf_thresh: 0.2
-    nms_dist: 15
+    conf_thresh: 0.25
+    nms_dist: 25
     nn_thresh: 1
     skip_match: false
 
