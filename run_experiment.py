@@ -341,9 +341,11 @@ def write_experiment_summary(
     experiment_name: str,
     records: list[dict[str, Any]],
     total_elapsed_seconds: float,
+    result_dir: str | None = None,
 ) -> Path:
     """Persist a readable run timing/count summary as JSON."""
-    output_dir = PROJECT_ROOT / "stereo_calib/result/experiment_summaries"
+    base_result_dir = to_project_path(result_dir) if result_dir else PROJECT_ROOT / "stereo_calib/result"
+    output_dir = base_result_dir / "experiment_summaries"
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / f"{experiment_name}_{make_output_timestamp()}_summary.json"
 
@@ -561,6 +563,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing them")
     parser.add_argument("--no-build", action="store_true", help="Skip the build step from the config")
     parser.add_argument("--conda-env", default=None, help="Override runner.conda_env from the config")
+    parser.add_argument("--result-dir", default=None, help="Override pipeline result_dir for every run")
     parser.add_argument("--scene", action="append", help="Run only the selected scene; can be repeated")
     return parser.parse_args()
 
@@ -577,6 +580,8 @@ def main() -> int:
             config.setdefault("build", {})["enabled"] = False
         if args.conda_env:
             config.setdefault("runner", {})["conda_env"] = args.conda_env
+        if args.result_dir:
+            config.setdefault("defaults", {}).setdefault("pipeline_args", {})["result_dir"] = args.result_dir
 
         scenes = args.scene or config.get("scenes", [])
         runs = config.get("runs", [])
@@ -627,6 +632,7 @@ def main() -> int:
                 experiment_name,
                 run_records,
                 total_elapsed_seconds,
+                args.result_dir,
             )
             print(f"\nExperiment summary JSON: {json_path}", flush=True)
         print(f"\nTotal elapsed: {format_elapsed_time(total_elapsed_seconds)}", flush=True)

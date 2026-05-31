@@ -68,6 +68,8 @@ def parse_args():
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
     p.add_argument("--output_timestamp", default=None,
                    help="输出文件名中的时间戳；默认使用当前时间（格式：YYYYmmdd_HHMMSS_microseconds）")
+    p.add_argument("--result_dir", default=None,
+                   help="输出结果根目录；默认写入 stereo_calib/result")
 
     # 流程控制
     flow = p.add_argument_group("流程控制")

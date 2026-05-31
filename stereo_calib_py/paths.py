@@ -105,6 +105,13 @@ def _timestamped_prefix(result_prefix: str, config: PipelineConfig) -> str:
     return f"{result_prefix}_{config.output_timestamp or make_output_timestamp()}"
 
 
+def _result_dir(config: PipelineConfig) -> Path:
+    if config.result_dir:
+        path = Path(config.result_dir)
+        return path if path.is_absolute() else PROJECT_ROOT / path
+    return PROJECT_ROOT / "stereo_calib/result"
+
+
 def _project_tools(matcher_kind: str, is_kitti_mode: bool) -> tuple[Path, Path, Path, Path]:
     # 工具路径仍沿用项目旧布局，集中在这里便于后续改成可配置路径。
     weights = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth"
@@ -197,7 +204,7 @@ def _build_paths(
         matcher_input_dir=matcher_input_dir,
         left_img_dir=left_img_dir,
         right_img_dir=right_img_dir,
-        result_dir=PROJECT_ROOT / "stereo_calib/result",
+        result_dir=_result_dir(config),
         cache_input_paths=cache_input_paths,
         new_output_paths=new_output_paths,
         ground_truth_paths=ground_truth_paths,
@@ -214,7 +221,7 @@ def _build_paths(
 
 def _resolve_project_paths(config: PipelineConfig) -> PipelinePaths:
     # Project/Blender 模式：输入图、GT 参数和历史缓存都按 scene 名组织。
-    result_dir = PROJECT_ROOT / "stereo_calib/result"
+    result_dir = _result_dir(config)
     result_prefix = config.scene
     output_prefix = _timestamped_prefix(result_prefix, config)
     img_dir = PROJECT_ROOT / f"blender-file/stereo_{config.scene}"
@@ -247,7 +254,7 @@ def _resolve_kitti2015_paths(config: PipelineConfig) -> PipelinePaths:
     if not config.kitti_root_dir:
         raise ValueError("KITTI 模式需要提供 --kitti_root_dir")
 
-    result_dir = PROJECT_ROOT / "stereo_calib/result"
+    result_dir = _result_dir(config)
     result_prefix = f"{config.dataset_mode}_{config.scene}"
     output_prefix = _timestamped_prefix(result_prefix, config)
     img_dir = Path(config.kitti_root_dir)
@@ -282,7 +289,7 @@ def _resolve_kitti_raw_aggregate_paths(config: PipelineConfig) -> PipelinePaths:
     if not config.match_json:
         raise ValueError("KITTI RAW aggregate 模式需要提供 --match_json")
 
-    result_dir = PROJECT_ROOT / "stereo_calib/result"
+    result_dir = _result_dir(config)
     result_prefix = config.result_prefix or "kitti_raw_00_01"
     output_prefix = _timestamped_prefix(result_prefix, config)
     img_dir = Path(config.kitti_root_dir)
@@ -316,7 +323,7 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
     if not config.kitti_root_dir and not (config.left_img_dir and config.right_img_dir):
         raise ValueError("KITTI RAW sequence 模式需要提供 --kitti_root_dir 或 --left_img_dir/--right_img_dir")
 
-    result_dir = PROJECT_ROOT / "stereo_calib/result"
+    result_dir = _result_dir(config)
     result_prefix = config.result_prefix or config.scene
     img_dir = Path(config.kitti_root_dir) if config.kitti_root_dir else Path(config.left_img_dir).parent.parent
     left_img_dir = Path(config.left_img_dir) if config.left_img_dir else img_dir / "image_00" / "data"
