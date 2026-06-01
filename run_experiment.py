@@ -564,6 +564,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-build", action="store_true", help="Skip the build step from the config")
     parser.add_argument("--conda-env", default=None, help="Override runner.conda_env from the config")
     parser.add_argument("--result-dir", default=None, help="Override pipeline result_dir for every run")
+    parser.add_argument("--match-output-tag", default=None, help="Use a stable matches filename tag for every run")
     parser.add_argument("--scene", action="append", help="Run only the selected scene; can be repeated")
     return parser.parse_args()
 
@@ -582,6 +583,8 @@ def main() -> int:
             config.setdefault("runner", {})["conda_env"] = args.conda_env
         if args.result_dir:
             config.setdefault("defaults", {}).setdefault("pipeline_args", {})["result_dir"] = args.result_dir
+        if args.match_output_tag:
+            config.setdefault("defaults", {}).setdefault("pipeline_args", {})["match_output_tag"] = args.match_output_tag
 
         scenes = args.scene or config.get("scenes", [])
         runs = config.get("runs", [])

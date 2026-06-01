@@ -12,4 +12,5 @@ python3 run_experiment.py \
   configs/experiments/kitti_raw_city_small_test_no_margin.yaml \
   --conda-env "$CONDA_ENV" \
   --result-dir "$RESULT_DIR" \
+  --match-output-tag "$SCRIPT_NAME" \
   "$@"

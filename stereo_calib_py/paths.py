@@ -105,6 +105,12 @@ def _timestamped_prefix(result_prefix: str, config: PipelineConfig) -> str:
     return f"{result_prefix}_{config.output_timestamp or make_output_timestamp()}"
 
 
+def _match_output_prefix(result_prefix: str, config: PipelineConfig) -> str:
+    if config.match_output_tag:
+        return f"{result_prefix}_{config.match_output_tag}"
+    return _timestamped_prefix(result_prefix, config)
+
+
 def _result_dir(config: PipelineConfig) -> Path:
     if config.result_dir:
         path = Path(config.result_dir)
@@ -165,6 +171,8 @@ def _select_match_json(config: PipelineConfig, cache: CacheInputPaths, new_outpu
     # timestamp 新规则下最新的历史 matches。
     if config.match_json:
         return Path(config.match_json)
+    if config.skip_match and config.match_output_tag:
+        return new_outputs.match_json
     if config.skip_match and cache.match_json is not None:
         latest_match = _latest_existing_path(cache.match_json_candidates)
         if latest_match is not None:
@@ -224,6 +232,7 @@ def _resolve_project_paths(config: PipelineConfig) -> PipelinePaths:
     result_dir = _result_dir(config)
     result_prefix = config.scene
     output_prefix = _timestamped_prefix(result_prefix, config)
+    match_output_prefix = _match_output_prefix(result_prefix, config)
     img_dir = PROJECT_ROOT / f"blender-file/stereo_{config.scene}"
 
     cache_inputs = CacheInputPaths(
@@ -329,6 +338,7 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
     left_img_dir = Path(config.left_img_dir) if config.left_img_dir else img_dir / "image_00" / "data"
     right_img_dir = Path(config.right_img_dir) if config.right_img_dir else img_dir / "image_01" / "data"
     output_prefix = _timestamped_prefix(result_prefix, config)
+    match_output_prefix = _match_output_prefix(result_prefix, config)
     matcher_tag = "no_ratio_margin" if config.disable_ratio_margin else "ratio_margin"
     param_tag = (
         f"conf_thresh={format_tag_value(config.conf_thresh)}"
@@ -345,7 +355,7 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
         ba_result_json=result_dir / "ba_results" / f"{result_prefix}_{param_tag}_ba_result_raw.json",
     )
     new_outputs = NewOutputPaths(
-        match_json=result_dir / "match_points" / f"{output_prefix}_matches_raw.json",
+        match_json=result_dir / "match_points" / f"{match_output_prefix}_matches_raw.json",
         ba_result_json=result_dir / "ba_results" / f"{output_prefix}_ba_result_raw.json",
         plot_png=result_dir / f"{output_prefix}_ba_history_raw.png",
     )

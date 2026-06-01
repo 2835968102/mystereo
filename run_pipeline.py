@@ -70,6 +70,8 @@ def parse_args():
                    help="输出文件名中的时间戳；默认使用当前时间（格式：YYYYmmdd_HHMMSS_microseconds）")
     p.add_argument("--result_dir", default=None,
                    help="输出结果根目录；默认写入 stereo_calib/result")
+    p.add_argument("--match_output_tag", default=None,
+                   help="稳定 matches 文件名标签；未设置时使用输出时间戳")
 
     # 流程控制
     flow = p.add_argument_group("流程控制")

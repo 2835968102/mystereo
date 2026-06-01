@@ -33,6 +33,7 @@ class PipelineConfig:
     pixel_tag: str = "3px"
     output_timestamp: str | None = None
     result_dir: str | None = None
+    match_output_tag: str | None = None
 
     # Pipeline switches.
     skip_match: bool = False

@@ -33,7 +33,7 @@ defaults:
     min_track_len: 3
     fix_distortion: true
     baseline_prior: 100
-    tx_prior: 20
+    tx_prior: 0
     focal_prior: 1
     focal_lower_scale: 0.2
     focal_upper_scale: 3.0
