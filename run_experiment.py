@@ -342,12 +342,14 @@ def write_experiment_summary(
     records: list[dict[str, Any]],
     total_elapsed_seconds: float,
     result_dir: str | None = None,
+    run_id: str | None = None,
 ) -> Path:
     """Persist a readable run timing/count summary as JSON."""
     base_result_dir = to_project_path(result_dir) if result_dir else PROJECT_ROOT / "stereo_calib/result"
     output_dir = base_result_dir / "experiment_summaries"
     output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / f"{experiment_name}_{make_output_timestamp()}_summary.json"
+    summary_timestamp = run_id or make_output_timestamp()
+    json_path = output_dir / f"{experiment_name}_{summary_timestamp}_summary.json"
 
     total_stereo_pairs = sum(record.get("stereo_image_pair_count") or 0 for record in records)
     total_match_pairs = sum(record.get("match_pair_count") or 0 for record in records)
@@ -400,6 +402,7 @@ def write_experiment_summary(
         json.dump(
             {
                 "experiment": experiment_name,
+                "run_id": run_id,
                 "total": {
                     "elapsed": format_elapsed_time(total_elapsed_seconds),
                     "seconds": rounded(total_elapsed_seconds),
@@ -565,6 +568,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conda-env", default=None, help="Override runner.conda_env from the config")
     parser.add_argument("--result-dir", default=None, help="Override pipeline result_dir for every run")
     parser.add_argument("--match-output-tag", default=None, help="Use a stable matches filename tag for every run")
+    parser.add_argument("--run-id", default=None, help="Shared timestamp/id for outputs from this experiment run")
     parser.add_argument("--scene", action="append", help="Run only the selected scene; can be repeated")
     return parser.parse_args()
 
@@ -585,6 +589,8 @@ def main() -> int:
             config.setdefault("defaults", {}).setdefault("pipeline_args", {})["result_dir"] = args.result_dir
         if args.match_output_tag:
             config.setdefault("defaults", {}).setdefault("pipeline_args", {})["match_output_tag"] = args.match_output_tag
+        if args.run_id:
+            config.setdefault("defaults", {}).setdefault("pipeline_args", {})["output_timestamp"] = args.run_id
 
         scenes = args.scene or config.get("scenes", [])
         runs = config.get("runs", [])
@@ -636,6 +642,7 @@ def main() -> int:
                 run_records,
                 total_elapsed_seconds,
                 args.result_dir,
+                args.run_id,
             )
             print(f"\nExperiment summary JSON: {json_path}", flush=True)
         print(f"\nTotal elapsed: {format_elapsed_time(total_elapsed_seconds)}", flush=True)
