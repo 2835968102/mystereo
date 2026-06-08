@@ -8,6 +8,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@ struct Track {
 
 struct FrameState {
   std::string frame_id;
+  std::string sequence_id;
   int left_image_idx = -1;
   int right_image_idx = -1;
   std::vector<double> rvec = {0.0, 0.0, 0.0};

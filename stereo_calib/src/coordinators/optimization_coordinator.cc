@@ -1,6 +1,7 @@
 #include "coordinators/optimization_coordinator.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 
@@ -12,6 +13,56 @@ void ResetCameraParamsToInitialization(BAState& state) {
   state.intrinsics_left = state.init_intrinsics_left;
   state.intrinsics_right = state.init_intrinsics_right;
   state.extrinsics = state.init_extrinsics;
+}
+
+double NormalizeInitialFocalToMean(StereoCamera& camera) {
+  const double target_focal = 0.25 * (
+      camera.left.fx + camera.left.fy + camera.right.fx + camera.right.fy);
+  camera.left.fx = target_focal;
+  camera.left.fy = target_focal;
+  camera.right.fx = target_focal;
+  camera.right.fy = target_focal;
+  return target_focal;
+}
+
+void NormalizeInitialStereoTranslationToXAxis(StereoCamera& camera) {
+  if (camera.extrinsics.t.empty()) {
+    return;
+  }
+  camera.extrinsics.t.at<double>(1, 0) = 0.0;
+  camera.extrinsics.t.at<double>(2, 0) = 0.0;
+}
+
+bool SameFrameSequence(const FrameState& a, const FrameState& b) {
+  return a.sequence_id.empty() ||
+         b.sequence_id.empty() ||
+         a.sequence_id == b.sequence_id;
+}
+
+std::vector<int> BuildSequenceAnchorFrames(
+    const std::vector<FrameState>& frames,
+    int fallback_anchor) {
+  std::vector<int> anchors;
+  std::vector<std::string> seen_sequences;
+  if (fallback_anchor >= 0 && fallback_anchor < static_cast<int>(frames.size())) {
+    anchors.push_back(fallback_anchor);
+    if (!frames[fallback_anchor].sequence_id.empty()) {
+      seen_sequences.push_back(frames[fallback_anchor].sequence_id);
+    }
+  }
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    const std::string& sequence_id = frames[fi].sequence_id;
+    if (sequence_id.empty()) {
+      continue;
+    }
+    if (std::find(seen_sequences.begin(), seen_sequences.end(), sequence_id) !=
+        seen_sequences.end()) {
+      continue;
+    }
+    anchors.push_back(static_cast<int>(fi));
+    seen_sequences.push_back(sequence_id);
+  }
+  return anchors;
 }
 
 struct BAStateSnapshot {
@@ -59,6 +110,368 @@ void RestoreBAStateSnapshot(
   for (size_t ti = 0; ti < tracks.size() && ti < snapshot.track_points.size(); ++ti) {
     tracks[ti].point3d = snapshot.track_points[ti];
   }
+}
+
+double MaxPrincipalPointDelta(
+    const BAStateSnapshot& fixed_snapshot,
+    const BAState& free_state) {
+  double max_delta = 0.0;
+  const int kPrincipalPointIndices[] = {2, 3};
+  for (int idx : kPrincipalPointIndices) {
+    if (idx < static_cast<int>(fixed_snapshot.intrinsics_left.size()) &&
+        idx < static_cast<int>(free_state.intrinsics_left.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.intrinsics_left[idx] - fixed_snapshot.intrinsics_left[idx]));
+    }
+    if (idx < static_cast<int>(fixed_snapshot.intrinsics_right.size()) &&
+        idx < static_cast<int>(free_state.intrinsics_right.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.intrinsics_right[idx] - fixed_snapshot.intrinsics_right[idx]));
+    }
+  }
+  return max_delta;
+}
+
+double MaxPrincipalPointDistanceFromInitMean(const BAState& state) {
+  if (state.init_intrinsics_left.size() < 4 ||
+      state.init_intrinsics_right.size() < 4 ||
+      state.intrinsics_left.size() < 4 ||
+      state.intrinsics_right.size() < 4) {
+    return 0.0;
+  }
+
+  const double target_cx =
+      0.5 * (state.init_intrinsics_left[2] + state.init_intrinsics_right[2]);
+  const double target_cy =
+      0.5 * (state.init_intrinsics_left[3] + state.init_intrinsics_right[3]);
+  double max_delta = 0.0;
+  max_delta = std::max(max_delta, std::abs(state.intrinsics_left[2] - target_cx));
+  max_delta = std::max(max_delta, std::abs(state.intrinsics_left[3] - target_cy));
+  max_delta = std::max(max_delta, std::abs(state.intrinsics_right[2] - target_cx));
+  max_delta = std::max(max_delta, std::abs(state.intrinsics_right[3] - target_cy));
+  return max_delta;
+}
+
+double MaxFocalLengthDelta(
+    const BAStateSnapshot& fixed_snapshot,
+    const BAState& free_state) {
+  double max_delta = 0.0;
+  const int kFocalIndices[] = {0, 1};
+  for (int idx : kFocalIndices) {
+    if (idx < static_cast<int>(fixed_snapshot.intrinsics_left.size()) &&
+        idx < static_cast<int>(free_state.intrinsics_left.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.intrinsics_left[idx] - fixed_snapshot.intrinsics_left[idx]));
+    }
+    if (idx < static_cast<int>(fixed_snapshot.intrinsics_right.size()) &&
+        idx < static_cast<int>(free_state.intrinsics_right.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.intrinsics_right[idx] - fixed_snapshot.intrinsics_right[idx]));
+    }
+  }
+  return max_delta;
+}
+
+double MaxStereoTranslationDelta(
+    const BAStateSnapshot& fixed_snapshot,
+    const BAState& free_state) {
+  double max_delta = 0.0;
+  for (int idx = 3; idx <= 5; ++idx) {
+    if (idx < static_cast<int>(fixed_snapshot.extrinsics.size()) &&
+        idx < static_cast<int>(free_state.extrinsics.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.extrinsics[idx] - fixed_snapshot.extrinsics[idx]));
+    }
+  }
+  return max_delta;
+}
+
+double MaxStereoRotationDelta(
+    const BAStateSnapshot& fixed_snapshot,
+    const BAState& free_state) {
+  double max_delta = 0.0;
+  for (int idx = 0; idx <= 2; ++idx) {
+    if (idx < static_cast<int>(fixed_snapshot.extrinsics.size()) &&
+        idx < static_cast<int>(free_state.extrinsics.size())) {
+      max_delta = std::max(
+          max_delta,
+          std::abs(free_state.extrinsics[idx] - fixed_snapshot.extrinsics[idx]));
+    }
+  }
+  return max_delta;
+}
+
+struct FrameDistanceScaleStats {
+  bool valid = false;
+  size_t pair_count = 0;
+  double scale = 1.0;
+  double mean_current_distance = 0.0;
+  double mean_target_distance = 0.0;
+  double rms_error_before = 0.0;
+  double rms_error_after = 0.0;
+};
+
+struct FrameDistanceRmsStats {
+  bool valid = false;
+  size_t pair_count = 0;
+  double rms_error = 0.0;
+};
+
+bool CameraCenterWorld(const FrameState& frame, cv::Mat& center) {
+  if (frame.rvec.size() < 3 || frame.tvec.size() < 3) {
+    return false;
+  }
+  const cv::Mat rvec = (cv::Mat_<double>(3, 1)
+      << frame.rvec[0], frame.rvec[1], frame.rvec[2]);
+  cv::Mat R_lw;
+  cv::Rodrigues(rvec, R_lw);
+  const cv::Mat t_lw = (cv::Mat_<double>(3, 1)
+      << frame.tvec[0], frame.tvec[1], frame.tvec[2]);
+  center = -R_lw.t() * t_lw;
+  return cv::checkRange(center);
+}
+
+FrameDistanceScaleStats EstimateFrameDistanceMetricScale(
+    const std::vector<FrameState>& frames,
+    const std::vector<char>& active_frames,
+    int min_stride,
+    int max_stride) {
+  FrameDistanceScaleStats stats;
+  const int first_stride = std::max(1, min_stride);
+  const int last_stride = std::max(first_stride, max_stride);
+  constexpr double kMinTargetDistanceMeters = 0.2;
+  constexpr double kMinCurrentDistance = 1e-6;
+
+  struct PairDistance {
+    double current = 0.0;
+    double target = 0.0;
+  };
+  std::vector<PairDistance> distances;
+  distances.reserve(frames.size() * static_cast<size_t>(last_stride - first_stride + 1));
+
+  for (int frame_stride = first_stride; frame_stride <= last_stride; ++frame_stride) {
+    for (size_t fi = 0; fi + static_cast<size_t>(frame_stride) < frames.size(); ++fi) {
+      const size_t fj = fi + static_cast<size_t>(frame_stride);
+      if (fi >= active_frames.size() || fj >= active_frames.size() ||
+          !active_frames[fi] || !active_frames[fj]) {
+        continue;
+      }
+      const FrameState& frame_i = frames[fi];
+      const FrameState& frame_j = frames[fj];
+      if (!SameFrameSequence(frame_i, frame_j)) {
+        continue;
+      }
+      if (!frame_i.has_gt_pose || !frame_j.has_gt_pose ||
+          frame_i.gt_tvec.size() < 3 || frame_j.gt_tvec.size() < 3) {
+        continue;
+      }
+
+      const double target_dx = frame_i.gt_tvec[0] - frame_j.gt_tvec[0];
+      const double target_dy = frame_i.gt_tvec[1] - frame_j.gt_tvec[1];
+      const double target_dz = frame_i.gt_tvec[2] - frame_j.gt_tvec[2];
+      const double target_distance =
+          std::sqrt(target_dx * target_dx + target_dy * target_dy + target_dz * target_dz);
+      if (target_distance < kMinTargetDistanceMeters) {
+        continue;
+      }
+
+      cv::Mat center_i;
+      cv::Mat center_j;
+      if (!CameraCenterWorld(frame_i, center_i) ||
+          !CameraCenterWorld(frame_j, center_j)) {
+        continue;
+      }
+      const cv::Mat center_delta = center_i - center_j;
+      const double current_distance = cv::norm(center_delta);
+      if (!std::isfinite(current_distance) || current_distance < kMinCurrentDistance) {
+        continue;
+      }
+      distances.push_back({current_distance, target_distance});
+    }
+  }
+
+  if (distances.size() < 3) {
+    return stats;
+  }
+
+  double sum_current_sq = 0.0;
+  double sum_current_target = 0.0;
+  double sum_current = 0.0;
+  double sum_target = 0.0;
+  for (const PairDistance& distance : distances) {
+    sum_current_sq += distance.current * distance.current;
+    sum_current_target += distance.current * distance.target;
+    sum_current += distance.current;
+    sum_target += distance.target;
+  }
+
+  if (sum_current_sq <= 0.0) {
+    return stats;
+  }
+  const double scale = sum_current_target / sum_current_sq;
+  if (!std::isfinite(scale) || scale <= 0.0) {
+    return stats;
+  }
+
+  double sq_error_before = 0.0;
+  double sq_error_after = 0.0;
+  for (const PairDistance& distance : distances) {
+    const double before = distance.current - distance.target;
+    const double after = scale * distance.current - distance.target;
+    sq_error_before += before * before;
+    sq_error_after += after * after;
+  }
+
+  stats.valid = true;
+  stats.pair_count = distances.size();
+  stats.scale = scale;
+  stats.mean_current_distance = sum_current / static_cast<double>(distances.size());
+  stats.mean_target_distance = sum_target / static_cast<double>(distances.size());
+  stats.rms_error_before = std::sqrt(sq_error_before / static_cast<double>(distances.size()));
+  stats.rms_error_after = std::sqrt(sq_error_after / static_cast<double>(distances.size()));
+  return stats;
+}
+
+FrameDistanceRmsStats EstimateFrameDistanceRmsError(
+    const std::vector<FrameState>& frames,
+    const std::vector<char>& active_frames,
+    int min_stride,
+    int max_stride) {
+  FrameDistanceRmsStats stats;
+  const int first_stride = std::max(1, min_stride);
+  const int last_stride = std::max(first_stride, max_stride);
+  constexpr double kMinTargetDistanceMeters = 0.2;
+  constexpr double kMinCurrentDistance = 1e-6;
+
+  double sq_error = 0.0;
+  for (int frame_stride = first_stride; frame_stride <= last_stride; ++frame_stride) {
+    for (size_t fi = 0; fi + static_cast<size_t>(frame_stride) < frames.size(); ++fi) {
+      const size_t fj = fi + static_cast<size_t>(frame_stride);
+      if (fi >= active_frames.size() || fj >= active_frames.size() ||
+          !active_frames[fi] || !active_frames[fj]) {
+        continue;
+      }
+      const FrameState& frame_i = frames[fi];
+      const FrameState& frame_j = frames[fj];
+      if (!SameFrameSequence(frame_i, frame_j)) {
+        continue;
+      }
+      if (!frame_i.has_gt_pose || !frame_j.has_gt_pose ||
+          frame_i.gt_tvec.size() < 3 || frame_j.gt_tvec.size() < 3) {
+        continue;
+      }
+
+      const double target_dx = frame_i.gt_tvec[0] - frame_j.gt_tvec[0];
+      const double target_dy = frame_i.gt_tvec[1] - frame_j.gt_tvec[1];
+      const double target_dz = frame_i.gt_tvec[2] - frame_j.gt_tvec[2];
+      const double target_distance =
+          std::sqrt(target_dx * target_dx + target_dy * target_dy + target_dz * target_dz);
+      if (target_distance < kMinTargetDistanceMeters) {
+        continue;
+      }
+
+      cv::Mat center_i;
+      cv::Mat center_j;
+      if (!CameraCenterWorld(frame_i, center_i) ||
+          !CameraCenterWorld(frame_j, center_j)) {
+        continue;
+      }
+      const double current_distance = cv::norm(center_i - center_j);
+      if (!std::isfinite(current_distance) || current_distance < kMinCurrentDistance) {
+        continue;
+      }
+      const double error = current_distance - target_distance;
+      sq_error += error * error;
+      ++stats.pair_count;
+    }
+  }
+
+  if (stats.pair_count < 3) {
+    return stats;
+  }
+  stats.valid = true;
+  stats.rms_error = std::sqrt(sq_error / static_cast<double>(stats.pair_count));
+  return stats;
+}
+
+void ApplyGlobalMetricScale(
+    BAState& state,
+    std::vector<FrameState>& frames,
+    std::vector<Track>& tracks,
+    double scale) {
+  if (!std::isfinite(scale) || scale <= 0.0) {
+    return;
+  }
+  for (int idx = 3; idx <= 5 && idx < static_cast<int>(state.extrinsics.size()); ++idx) {
+    state.extrinsics[idx] *= scale;
+  }
+  for (int idx = 3; idx <= 5 && idx < static_cast<int>(state.init_extrinsics.size()); ++idx) {
+    state.init_extrinsics[idx] *= scale;
+  }
+  for (FrameState& frame : frames) {
+    for (int idx = 0; idx < 3 && idx < static_cast<int>(frame.tvec.size()); ++idx) {
+      frame.tvec[idx] *= scale;
+    }
+  }
+  for (Track& track : tracks) {
+    for (int idx = 0; idx < 3 && idx < static_cast<int>(track.point3d.size()); ++idx) {
+      track.point3d[idx] *= scale;
+    }
+  }
+}
+
+bool ShouldAcceptFreePrincipalPoint(
+    double fixed_rmse,
+    double free_rmse,
+    double principal_point_delta,
+    double principal_point_target_delta,
+    double focal_delta,
+    double min_rmse_decrease,
+    double max_target_delta,
+    double max_focal_delta) {
+  (void)principal_point_delta;
+  min_rmse_decrease = std::max(0.0, min_rmse_decrease);
+  max_target_delta = std::max(0.0, max_target_delta);
+  max_focal_delta = std::max(0.0, max_focal_delta);
+  return (fixed_rmse - free_rmse) >= min_rmse_decrease &&
+         principal_point_target_delta <= max_target_delta &&
+         focal_delta <= max_focal_delta + 1e-9;
+}
+
+bool ShouldAcceptStereoExtrinsicsRefine(
+    double fixed_rmse,
+    double refined_rmse,
+    double translation_delta,
+    double rotation_delta,
+    double min_rmse_decrease,
+    double max_translation_delta,
+    double max_rotation_delta) {
+  min_rmse_decrease = std::max(0.0, min_rmse_decrease);
+  max_translation_delta = std::max(0.0, max_translation_delta);
+  max_rotation_delta = std::max(0.0, max_rotation_delta);
+  return (fixed_rmse - refined_rmse) >= min_rmse_decrease &&
+         translation_delta <= max_translation_delta + 1e-9 &&
+         rotation_delta <= max_rotation_delta + 1e-12;
+}
+
+bool ShouldAcceptPerFrameCorrection(
+    const BAResult& result,
+    double max_rmse,
+    double max_rmse_growth) {
+  if (!result.success || !std::isfinite(result.final_rmse)) {
+    return false;
+  }
+  max_rmse = std::max(0.0, max_rmse);
+  max_rmse_growth = std::max(1.0, max_rmse_growth);
+  const double growth_limit =
+      max_rmse_growth * std::max(1e-9, result.init_rmse);
+  return result.final_rmse <= max_rmse &&
+         result.final_rmse <= growth_limit;
 }
 
 nlohmann::json BuildOutlierHistoryEntry(
@@ -146,13 +559,32 @@ BAConfig OptimizationCoordinator::ToBAConfig(
   bc.max_iterations = max_iter;
   bc.huber_delta = config.huber_delta;
   bc.fix_distortion = config.fix_distortion;
+  bc.fix_focal_length = config.fix_focal_length;
   bc.fix_principal_point = config.fix_principal_point;
   bc.aspect_ratio_prior_weight = config.aspect_ratio_prior_weight;
   bc.baseline_prior_weight = config.baseline_prior_weight;
   bc.tx_prior_weight = config.tx_prior_weight;
   bc.focal_prior_weight = config.focal_prior_weight;
+  bc.focal_mean_prior_weight = config.focal_mean_prior_weight;
+  bc.stereo_intrinsics_consistency_weight = config.stereo_intrinsics_consistency_weight;
+  bc.principal_point_mean_prior_weight = config.principal_point_mean_prior_weight;
+  bc.frame_distance_prior_weight = config.frame_distance_prior_weight;
+  bc.frame_position_prior_weight = config.frame_position_prior_weight;
+  bc.frame_translation_vector_prior_weight =
+      config.frame_translation_vector_prior_weight;
+  bc.frame_translation_direction_prior_weight =
+      config.frame_translation_direction_prior_weight;
+  bc.frame_distance_prior_stride = config.frame_distance_prior_stride;
+  bc.frame_distance_prior_max_stride = config.frame_distance_prior_max_stride;
+  bc.frame_rotation_angle_prior_weight = config.frame_rotation_angle_prior_weight;
+  bc.frame_rotation_vector_prior_weight = config.frame_rotation_vector_prior_weight;
+  bc.frame_absolute_rotation_prior_weight =
+      config.frame_absolute_rotation_prior_weight;
   bc.focal_lower_scale = config.focal_lower_scale;
   bc.focal_upper_scale = config.focal_upper_scale;
+  bc.fix_frame_poses = config.fix_external_frame_poses;
+  bc.fix_frame_rotations = config.fix_external_frame_rotations;
+  bc.fix_frame_translations = config.fix_external_frame_translations;
   return bc;
 }
 
@@ -191,15 +623,79 @@ void OptimizationCoordinator::ApplyFramePoses(
   for (auto& frame : frames) {
     for (const auto& pose : frame_poses_json_["frames"]) {
       if (pose.contains("frame_id") && pose["frame_id"] == frame.frame_id) {
+        bool has_pose_value = false;
         if (pose.contains("rotation")) {
           const auto& rot = pose["rotation"];
           frame.gt_rvec = {rot[0].get<double>(), rot[1].get<double>(), rot[2].get<double>()};
-          frame.has_gt_pose = true;
         }
+        if (pose.contains("translation")) {
+          const auto& trans = pose["translation"];
+          frame.gt_tvec = {trans[0].get<double>(), trans[1].get<double>(), trans[2].get<double>()};
+          has_pose_value = true;
+        } else if (pose.contains("position")) {
+          const auto& pos = pose["position"];
+          frame.gt_tvec = {pos[0].get<double>(), pos[1].get<double>(), pos[2].get<double>()};
+          has_pose_value = true;
+        }
+        frame.has_gt_pose = has_pose_value;
         break;
       }
     }
   }
+}
+
+bool OptimizationCoordinator::InitializeFramePosesFromExternal(
+    std::vector<FrameState>& frames,
+    std::vector<int>& registration_order,
+    int& fixed_frame_idx) const {
+  if (frame_poses_json_.empty() || !frame_poses_json_.contains("frames")) {
+    return false;
+  }
+
+  registration_order.clear();
+  fixed_frame_idx = 0;
+  int initialized_count = 0;
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    FrameState& frame = frames[fi];
+    if (!frame.has_gt_pose ||
+        frame.gt_rvec.size() < 3 ||
+        frame.gt_tvec.size() < 3) {
+      continue;
+    }
+
+    const cv::Mat rvec = (cv::Mat_<double>(3, 1)
+        << frame.gt_rvec[0], frame.gt_rvec[1], frame.gt_rvec[2]);
+    cv::Mat R_lw;
+    cv::Rodrigues(rvec, R_lw);
+    const cv::Mat center_w = (cv::Mat_<double>(3, 1)
+        << frame.gt_tvec[0], frame.gt_tvec[1], frame.gt_tvec[2]);
+    const cv::Mat t_lw = -R_lw * center_w;
+    if (!cv::checkRange(R_lw) || !cv::checkRange(t_lw)) {
+      continue;
+    }
+
+    frame.rvec = {frame.gt_rvec[0], frame.gt_rvec[1], frame.gt_rvec[2]};
+    frame.tvec = {
+        t_lw.at<double>(0, 0),
+        t_lw.at<double>(1, 0),
+        t_lw.at<double>(2, 0),
+    };
+    frame.initialized = true;
+    registration_order.push_back(static_cast<int>(fi));
+    initialized_count++;
+  }
+
+  if (initialized_count < static_cast<int>(frames.size())) {
+    registration_order.clear();
+    for (FrameState& frame : frames) {
+      frame.initialized = false;
+    }
+    return false;
+  }
+
+  std::cout << "[Frame Pose Init] initialized " << initialized_count
+            << " frames from external frame poses." << std::endl;
+  return true;
 }
 
 // ─── Main Workflow ──────────────────────────────────────────────────────────
@@ -226,6 +722,18 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   std::vector<Track> tracks = std::move(build_result.tracks);
   std::vector<FrameState> frames = std::move(build_result.frames);
   const std::vector<ImageInfo>& images = build_result.images;
+  StereoCamera init_camera = input.init_camera;
+  if (config.normalize_initial_focal_to_mean) {
+    const double target_focal = NormalizeInitialFocalToMean(init_camera);
+    std::cout << "[Focal Init Normalize] set left/right fx/fy to initial mean "
+              << std::fixed << std::setprecision(6) << target_focal
+              << " px before pose/point initialization." << std::endl;
+  }
+  if (config.normalize_initial_stereo_translation_to_x_axis) {
+    NormalizeInitialStereoTranslationToXAxis(init_camera);
+    std::cout << "[Stereo Translation Init Normalize] set initial ty/tz to 0 "
+              << "for rectified stereo optimization." << std::endl;
+  }
   result.num_tracks = build_result.num_tracks;
   result.num_observations = build_result.num_observations;
   result.num_frames = frames.size();
@@ -247,15 +755,28 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   // 根据双目匹配和初始相机参数估计每帧位姿，并给出注册顺序。
   // fixed_frame_idx 作为世界坐标参考帧，后续 BA 中会固定它的位姿，
   // 避免整个重建发生 gauge freedom 漂移。
-  FrameInitResult frame_init = init_service_->InitializeFrameRotations(
-      input.init_camera,
-      input.pairs,
-      images,
-      config.max_match_score,
-      config.min_pair_inliers,
-      config.min_pair_inlier_ratio,
-      tracks,
-      frames);
+  FrameInitResult frame_init;
+  if (config.initialize_frame_poses_from_external) {
+    frame_init.success = InitializeFramePosesFromExternal(
+        frames,
+        frame_init.registration_order,
+        frame_init.fixed_frame_idx);
+    if (!frame_init.success) {
+      std::cerr << "[Frame Pose Init] external frame poses unavailable or incomplete; "
+                << "falling back to image-based initialization." << std::endl;
+    }
+  }
+  if (!frame_init.success) {
+    frame_init = init_service_->InitializeFrameRotations(
+        init_camera,
+        input.pairs,
+        images,
+        config.max_match_score,
+        config.min_pair_inliers,
+        config.min_pair_inlier_ratio,
+        tracks,
+        frames);
+  }
   if (!frame_init.success || frame_init.registration_order.empty()) {
     std::cerr << "Frame pose initialization failed." << std::endl;
     return result;
@@ -266,21 +787,26 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   // 左/右内参、双目外参、每帧位姿、每条 track 的 3D 点都会被 Ceres
   // 直接写回这些 vector/struct 中。init_* 保留初值，用于 prior 和可选重置。
   BAState state;
-  state.intrinsics_left = input.init_camera.left.ToVector();
-  state.intrinsics_right = input.init_camera.right.ToVector();
+  state.intrinsics_left = init_camera.left.ToVector();
+  state.intrinsics_right = init_camera.right.ToVector();
   state.init_intrinsics_left = state.intrinsics_left;
   state.init_intrinsics_right = state.intrinsics_right;
-  state.extrinsics = input.init_camera.extrinsics.ToVector();
+  state.extrinsics = init_camera.extrinsics.ToVector();
   state.init_extrinsics = state.extrinsics;
   state.frames = &frames;
   state.tracks = &tracks;
   state.fixed_frame_idx = frame_init.fixed_frame_idx;
+  state.fixed_frame_indices = BuildSequenceAnchorFrames(frames, frame_init.fixed_frame_idx);
+  if (state.fixed_frame_indices.size() > 1) {
+    std::cout << "[Frame Pose Gauge] fixed " << state.fixed_frame_indices.size()
+              << " sequence anchor frames for disconnected joint BA." << std::endl;
+  }
 
   // ── Step 5: Track point initialization ────────────────────────────────────
   // 在第一次 BA 前先三角化/初始化 track 的 3D 点。没有合理 3D 初值时，
   // 后面的重投影残差很容易落到坏的局部极值。
   PointInitResult point_init = init_service_->InitializeTrackPoints(
-      input.init_camera, state.extrinsics, frames, tracks);
+      init_camera, state.extrinsics, frames, tracks);
   if (!point_init.success) {
     std::cerr << "Track point initialization failed." << std::endl;
     return result;
@@ -302,21 +828,22 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
   const int global_opt_interval = std::max(1, config.global_opt_interval);
   BAConfig local_ba_config = ToBAConfig(config, config.per_frame_max_iter);
   // 局部校正只用于稳定刚加入的帧：固定左右相机内参和双目外参，
-  // 只优化目标帧位姿以及被观测到的 3D 点。
+  // 只优化目标帧位姿。3D 点留给后续 active-set global BA 联合调整，
+  // 避免单个坏新帧把已有结构拖偏。
   local_ba_config.fix_camera_params = true;
-  local_ba_config.fix_track_points = false;
+  local_ba_config.fix_track_points = true;
   BAConfig incremental_ba_config = ToBAConfig(config, config.incremental_max_iter);
   if (config.enable_two_stage_final_global_ba) {
     // KITTI 默认最终会先固定主点、再释放主点。增量阶段也固定主点，
     // 可以减少早期 active set 较小时 cx/cy 与位姿互相补偿造成的不稳定。
     incremental_ba_config.fix_principal_point = true;
+    incremental_ba_config.fix_stereo_extrinsics = true;
   }
   const OutlierRejectionConfig outlier_config = ToOutlierConfig(config);
 
   bool have_rmse = false;
   int successful_registrations = 0;
   int interval_global_ba_count = 0;
-
   for (size_t i = 1; i < reg_order.size(); ++i) {
     const int frame_idx = reg_order[i];
     if (frame_idx < 0 || frame_idx >= static_cast<int>(active_frames.size())) {
@@ -327,9 +854,12 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
 
     if (config.enable_per_frame_correction) {
       // 可选本地 BA：只调整当前新注册帧，快速把它拉到已有 active set 上。
+      BAStateSnapshot local_snapshot = SaveBAStateSnapshot(state, frames, tracks);
       BAResult local_ba_result = ba_service_->RunBundleAdjustment(
           state, active_frames, local_ba_config, frame_idx);
-      if (local_ba_result.success) {
+      if (ShouldAcceptPerFrameCorrection(local_ba_result,
+                                         config.per_frame_max_rmse,
+                                         config.per_frame_max_rmse_growth)) {
         result.final_reproj_error = local_ba_result.final_rmse;
         if (!have_rmse) {
           result.init_reproj_error = local_ba_result.init_rmse;
@@ -346,6 +876,21 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
             "Per-Frame Correction - Registered Frame " + std::to_string(i + 1),
             local_ba_result.final_rmse,
             current);
+      } else {
+        RestoreBAStateSnapshot(local_snapshot, state, frames, tracks);
+        const double attempted_rmse =
+            local_ba_result.success ? local_ba_result.final_rmse : -1.0;
+        const double init_rmse =
+            local_ba_result.success ? local_ba_result.init_rmse : -1.0;
+        std::cout << "[Per-Frame Correction] rejected, registered_frames="
+                  << (i + 1) << "/" << reg_order.size()
+                  << ", target_frame=" << frame_idx
+                  << ", init_rmse=" << std::fixed << std::setprecision(4)
+                  << init_rmse << " px"
+                  << ", attempted_rmse=" << attempted_rmse << " px"
+                  << ", max_rmse=" << config.per_frame_max_rmse << " px"
+                  << ", max_rmse_growth=" << config.per_frame_max_rmse_growth
+                  << std::endl;
       }
     }
 
@@ -415,8 +960,6 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     const int active_frame_count =
         static_cast<int>(std::count(active_frames.begin(), active_frames.end(), 1));
     const int free_refine_interval = std::max(1, config.free_principal_point_every_n_global_ba);
-    const double max_free_refine_rmse_increase =
-        std::max(0.0, config.free_principal_point_max_rmse_increase);
     const bool has_enough_active_frames =
         active_frame_count >= config.min_active_frames_for_free_principal_point;
     const bool is_scheduled_free_refine =
@@ -424,6 +967,12 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     if (config.enable_incremental_free_principal_point_refine &&
         has_enough_active_frames &&
         is_scheduled_free_refine) {
+      const double min_rmse_decrease =
+          std::max(0.0, config.free_principal_point_min_rmse_decrease);
+      const double max_principal_point_target_delta =
+          std::max(0.0, config.free_principal_point_max_delta);
+      const double max_focal_delta =
+          std::max(0.0, config.free_principal_point_max_focal_delta);
       BAStateSnapshot fixed_principal_point_snapshot =
           SaveBAStateSnapshot(state, frames, tracks);
       const double fixed_principal_point_rmse = ba_result.final_rmse;
@@ -431,19 +980,59 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
       BAConfig free_principal_point_config =
           ToBAConfig(config, config.incremental_free_principal_point_max_iter);
       free_principal_point_config.fix_principal_point = false;
+      free_principal_point_config.fix_focal_length =
+          config.free_principal_point_fix_focal_length;
+      free_principal_point_config.fix_stereo_extrinsics = true;
+      free_principal_point_config.fix_frame_poses = config.fix_external_frame_poses;
+      free_principal_point_config.fix_track_points = false;
       BAResult free_principal_point_result = ba_service_->RunBundleAdjustment(
           state, active_frames, free_principal_point_config, -1);
+      const double principal_point_delta = free_principal_point_result.success
+          ? MaxPrincipalPointDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double principal_point_target_delta = free_principal_point_result.success
+          ? MaxPrincipalPointDistanceFromInitMean(state)
+          : -1.0;
+      const double focal_delta = free_principal_point_result.success
+          ? MaxFocalLengthDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double stereo_translation_delta = free_principal_point_result.success
+          ? MaxStereoTranslationDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double stereo_rotation_delta = free_principal_point_result.success
+          ? MaxStereoRotationDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
 
       if (free_principal_point_result.success &&
-          free_principal_point_result.final_rmse <=
-              fixed_principal_point_rmse + max_free_refine_rmse_increase) {
+          ShouldAcceptFreePrincipalPoint(fixed_principal_point_rmse,
+                                         free_principal_point_result.final_rmse,
+                                         principal_point_delta,
+                                         principal_point_target_delta,
+                                         focal_delta,
+                                         min_rmse_decrease,
+                                         max_principal_point_target_delta,
+                                         max_focal_delta)) {
         ba_result = free_principal_point_result;
         std::cout << "[Interval Free Principal Point Refine] registered_frames="
                   << active_frame_count << "/" << reg_order.size()
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
                   << free_principal_point_result.final_rmse << " px"
                   << ", fixed_principal_point_rmse=" << fixed_principal_point_rmse
-                  << " px" << std::endl;
+                  << " px"
+                  << ", rmse_decrease="
+                  << (fixed_principal_point_rmse - free_principal_point_result.final_rmse)
+                  << " px"
+                  << ", max_principal_point_delta=" << principal_point_delta
+                  << " px"
+                  << ", max_principal_point_target_delta="
+                  << principal_point_target_delta
+                  << " px"
+                  << ", max_focal_delta=" << focal_delta
+                  << " px"
+                  << ", max_stereo_translation_delta=" << stereo_translation_delta
+                  << " m"
+                  << ", max_stereo_rotation_delta=" << stereo_rotation_delta
+                  << " rad" << std::endl;
 
         StereoCamera current = BuildCamera(state);
         eval_service_->PrintCurrentVsGroundTruth(
@@ -458,11 +1047,31 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
         const double attempted_rmse = free_principal_point_result.success
                                           ? free_principal_point_result.final_rmse
                                           : -1.0;
+        const double attempted_rmse_decrease = free_principal_point_result.success
+                                          ? fixed_principal_point_rmse - free_principal_point_result.final_rmse
+                                          : 0.0;
         std::cout << "[Interval Free Principal Point Refine] rejected, registered_frames="
                   << active_frame_count << "/" << reg_order.size()
                   << ", fixed_principal_point_rmse=" << std::fixed << std::setprecision(4)
                   << fixed_principal_point_rmse << " px"
-                  << ", attempted_rmse=" << attempted_rmse << " px" << std::endl;
+                  << ", attempted_rmse=" << attempted_rmse << " px"
+                  << ", rmse_decrease=" << attempted_rmse_decrease << " px"
+                  << ", max_principal_point_delta=" << principal_point_delta << " px"
+                  << ", max_principal_point_target_delta="
+                  << principal_point_target_delta << " px"
+                  << ", max_focal_delta=" << focal_delta << " px"
+                  << ", max_stereo_translation_delta="
+                  << stereo_translation_delta << " m"
+                  << ", max_stereo_rotation_delta="
+                  << stereo_rotation_delta << " rad"
+                  << ", required_rmse_decrease="
+                  << min_rmse_decrease
+                  << " px"
+                  << ", allowed_principal_point_target_delta="
+                  << max_principal_point_target_delta
+                  << " px"
+                  << ", allowed_focal_delta=" << max_focal_delta
+                  << " px" << std::endl;
       }
     }
 
@@ -517,12 +1126,30 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
     // 以上一阶段结果为初值释放主点，做最终微调。
     BAConfig fixed_principal_point_config = final_ba_config;
     fixed_principal_point_config.fix_principal_point = true;
+    fixed_principal_point_config.fix_stereo_extrinsics =
+        !config.optimize_stereo_tx_in_final_global_ba;
+    fixed_principal_point_config.fix_stereo_rotation =
+        config.optimize_stereo_tx_in_final_global_ba;
+    fixed_principal_point_config.fix_stereo_yz_translation =
+        config.optimize_stereo_tx_in_final_global_ba;
+    fixed_principal_point_config.stereo_tx_delta_bound =
+        config.optimize_stereo_tx_in_final_global_ba
+            ? std::max(0.0, config.final_stereo_extrinsics_max_translation_delta)
+            : 0.0;
     // 第一阶段固定 cx/cy，优化焦距、畸变（如未固定）、双目外参、帧位姿和点。
     // 这是一次全量 active-set global BA，迭代次数使用 max_iter，而不是
     // incremental_max_iter；目的是在外点清理后充分收敛。
     BAResult fixed_principal_point_result = ba_service_->RunBundleAdjustment(
         state, active_frames, fixed_principal_point_config, -1);
     if (fixed_principal_point_result.success) {
+      BAStateSnapshot fixed_principal_point_snapshot =
+          SaveBAStateSnapshot(state, frames, tracks);
+      const double final_min_rmse_decrease =
+          std::max(0.0, config.final_free_principal_point_min_rmse_decrease);
+      const double final_max_principal_point_target_delta =
+          std::max(0.0, config.final_free_principal_point_max_delta);
+      const double final_max_focal_delta =
+          std::max(0.0, config.final_free_principal_point_max_focal_delta);
       result.final_reproj_error = fixed_principal_point_result.final_rmse;
       std::cout << "[Final Global BA (Fixed Principal Point)] registered_frames="
                 << (successful_registrations + 1)
@@ -538,17 +1165,70 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
 
       BAConfig free_principal_point_config = final_ba_config;
       free_principal_point_config.fix_principal_point = false;
+      free_principal_point_config.fix_focal_length =
+          config.final_free_principal_point_fix_focal_length;
+      free_principal_point_config.fix_stereo_extrinsics =
+          !config.optimize_stereo_tx_in_final_global_ba;
+      free_principal_point_config.fix_stereo_rotation =
+          config.optimize_stereo_tx_in_final_global_ba;
+      free_principal_point_config.fix_stereo_yz_translation =
+          config.optimize_stereo_tx_in_final_global_ba;
+      free_principal_point_config.stereo_tx_delta_bound =
+          config.optimize_stereo_tx_in_final_global_ba
+              ? std::max(0.0, config.final_stereo_extrinsics_max_translation_delta)
+              : 0.0;
+      free_principal_point_config.fix_frame_poses = config.fix_external_frame_poses;
+      free_principal_point_config.fix_track_points = false;
       // 第二阶段释放 cx/cy，在第一阶段结果附近做最终细调。
       // 如果这一阶段失败，会回退到固定主点阶段的结果，避免丢掉可用解。
       final_ba_result = ba_service_->RunBundleAdjustment(
           state, active_frames, free_principal_point_config, -1);
-      if (final_ba_result.success) {
+      const double principal_point_delta = final_ba_result.success
+          ? MaxPrincipalPointDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double principal_point_target_delta = final_ba_result.success
+          ? MaxPrincipalPointDistanceFromInitMean(state)
+          : -1.0;
+      const double focal_delta = final_ba_result.success
+          ? MaxFocalLengthDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double stereo_translation_delta = final_ba_result.success
+          ? MaxStereoTranslationDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      const double stereo_rotation_delta = final_ba_result.success
+          ? MaxStereoRotationDelta(fixed_principal_point_snapshot, state)
+          : -1.0;
+      if (final_ba_result.success &&
+          ShouldAcceptFreePrincipalPoint(fixed_principal_point_result.final_rmse,
+                                         final_ba_result.final_rmse,
+                                         principal_point_delta,
+                                         principal_point_target_delta,
+                                         focal_delta,
+                                         final_min_rmse_decrease,
+                                         final_max_principal_point_target_delta,
+                                         final_max_focal_delta)) {
         result.final_reproj_error = final_ba_result.final_rmse;
         std::cout << "[Final Global BA (Free Principal Point)] registered_frames="
                   << (successful_registrations + 1)
                   << "/" << reg_order.size()
                   << ", reproj_rmse=" << std::fixed << std::setprecision(4)
-                  << final_ba_result.final_rmse << " px" << std::endl;
+                  << final_ba_result.final_rmse << " px"
+                  << ", fixed_principal_point_rmse="
+                  << fixed_principal_point_result.final_rmse << " px"
+                  << ", rmse_decrease="
+                  << (fixed_principal_point_result.final_rmse - final_ba_result.final_rmse)
+                  << " px"
+                  << ", max_principal_point_delta=" << principal_point_delta
+                  << " px"
+                  << ", max_principal_point_target_delta="
+                  << principal_point_target_delta
+                  << " px"
+                  << ", max_focal_delta=" << focal_delta
+                  << " px"
+                  << ", max_stereo_translation_delta=" << stereo_translation_delta
+                  << " m"
+                  << ", max_stereo_rotation_delta=" << stereo_rotation_delta
+                  << " rad" << std::endl;
 
         current = BuildCamera(state);
         eval_service_->PrintCurrentVsGroundTruth("Final Global BA (Free Principal Point)", current);
@@ -556,8 +1236,36 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
                                                final_ba_result.final_rmse,
                                                current);
       } else {
-        std::cerr << "Final global BA with free principal point failed after fixed-principal-point refinement." << std::endl;
+        RestoreBAStateSnapshot(fixed_principal_point_snapshot, state, frames, tracks);
+        const double attempted_rmse = final_ba_result.success
+                                          ? final_ba_result.final_rmse
+                                          : -1.0;
+        const double attempted_rmse_decrease = final_ba_result.success
+            ? fixed_principal_point_result.final_rmse - final_ba_result.final_rmse
+            : 0.0;
+        std::cout << "[Final Global BA (Free Principal Point)] rejected"
+                  << ", fixed_principal_point_rmse=" << std::fixed << std::setprecision(4)
+                  << fixed_principal_point_result.final_rmse << " px"
+                  << ", attempted_rmse=" << attempted_rmse << " px"
+                  << ", rmse_decrease=" << attempted_rmse_decrease << " px"
+                  << ", max_principal_point_delta=" << principal_point_delta << " px"
+                  << ", max_principal_point_target_delta="
+                  << principal_point_target_delta << " px"
+                  << ", max_focal_delta=" << focal_delta << " px"
+                  << ", max_stereo_translation_delta="
+                  << stereo_translation_delta << " m"
+                  << ", max_stereo_rotation_delta="
+                  << stereo_rotation_delta << " rad"
+                  << ", required_rmse_decrease="
+                  << final_min_rmse_decrease
+                  << " px"
+                  << ", allowed_principal_point_target_delta="
+                  << final_max_principal_point_target_delta
+                  << " px"
+                  << ", allowed_focal_delta=" << final_max_focal_delta
+                  << " px" << std::endl;
         final_ba_result = fixed_principal_point_result;
+        result.final_reproj_error = fixed_principal_point_result.final_rmse;
       }
     } else {
       std::cerr << "Final global BA with fixed principal point failed after outlier rejection." << std::endl;
@@ -581,6 +1289,199 @@ OptimizationResult OptimizationCoordinator::RunIncrementalBA(
                                              current);
     } else {
       std::cerr << "Final global BA failed after outlier rejection." << std::endl;
+    }
+  }
+
+  if (config.frame_distance_prior_weight > 0.0 && final_ba_result.success) {
+    const FrameDistanceScaleStats scale_stats =
+        EstimateFrameDistanceMetricScale(
+            frames,
+            active_frames,
+            config.frame_distance_prior_stride,
+            config.frame_distance_prior_max_stride);
+    constexpr double kMinUsefulScaleCorrection = 1e-4;
+    constexpr double kMinRmsScaleErrorDecrease = 1e-4;
+    constexpr double kMinScale = 0.8;
+    constexpr double kMaxScale = 1.25;
+    const double scale_delta = std::abs(scale_stats.scale - 1.0);
+    const double rms_error_decrease =
+        scale_stats.rms_error_before - scale_stats.rms_error_after;
+    if (scale_stats.valid &&
+        scale_stats.scale >= kMinScale &&
+        scale_stats.scale <= kMaxScale &&
+        scale_delta >= kMinUsefulScaleCorrection &&
+        rms_error_decrease >= kMinRmsScaleErrorDecrease) {
+      ApplyGlobalMetricScale(state, frames, tracks, scale_stats.scale);
+      std::cout << "[Frame Distance Metric Scale Align] applied"
+                << ", scale=" << std::fixed << std::setprecision(6)
+                << scale_stats.scale
+                << ", pair_count=" << scale_stats.pair_count
+                << ", mean_current_distance=" << scale_stats.mean_current_distance
+                << " m"
+                << ", mean_target_distance=" << scale_stats.mean_target_distance
+                << " m"
+                << ", rms_distance_error_before="
+                << scale_stats.rms_error_before << " m"
+                << ", rms_distance_error_after="
+                << scale_stats.rms_error_after << " m" << std::endl;
+
+      StereoCamera current = BuildCamera(state);
+      eval_service_->PrintCurrentVsGroundTruth(
+          "Frame Distance Metric Scale Align", current);
+      eval_service_->RecordOptimizationStage(
+          "Frame Distance Metric Scale Align",
+          result.final_reproj_error,
+          current);
+    } else {
+      std::cout << "[Frame Distance Metric Scale Align] skipped"
+                << ", valid=" << (scale_stats.valid ? "true" : "false")
+                << ", scale=" << std::fixed << std::setprecision(6)
+                << scale_stats.scale
+                << ", pair_count=" << scale_stats.pair_count
+                << ", mean_current_distance=" << scale_stats.mean_current_distance
+                << " m"
+                << ", mean_target_distance=" << scale_stats.mean_target_distance
+                << " m"
+                << ", rms_distance_error_before="
+                << scale_stats.rms_error_before << " m"
+                << ", rms_distance_error_after="
+                << scale_stats.rms_error_after << " m" << std::endl;
+    }
+  }
+
+  if (config.enable_final_stereo_extrinsics_refine && final_ba_result.success) {
+    BAStateSnapshot fixed_stereo_extrinsics_snapshot =
+        SaveBAStateSnapshot(state, frames, tracks);
+    const double fixed_stereo_extrinsics_rmse = result.final_reproj_error;
+    const double min_rmse_decrease =
+        std::max(0.0, config.final_stereo_extrinsics_min_rmse_decrease);
+    const double max_translation_delta =
+        std::max(0.0, config.final_stereo_extrinsics_max_translation_delta);
+    const double max_rotation_delta =
+        std::max(0.0, config.final_stereo_extrinsics_max_rotation_delta);
+    const double max_frame_distance_rms_increase =
+        config.final_stereo_extrinsics_max_frame_distance_rms_increase;
+    const bool guard_frame_distance_rms =
+        max_frame_distance_rms_increase >= 0.0 &&
+        config.frame_distance_prior_weight > 0.0;
+    const FrameDistanceRmsStats fixed_frame_distance_rms =
+        guard_frame_distance_rms
+            ? EstimateFrameDistanceRmsError(
+                  frames,
+                  active_frames,
+                  config.frame_distance_prior_stride,
+                  config.frame_distance_prior_max_stride)
+            : FrameDistanceRmsStats{};
+    BAConfig stereo_extrinsics_config =
+        ToBAConfig(config, std::max(1, config.final_stereo_extrinsics_max_iter));
+    stereo_extrinsics_config.fix_focal_length = true;
+    stereo_extrinsics_config.fix_principal_point = true;
+    stereo_extrinsics_config.fix_stereo_extrinsics = false;
+    stereo_extrinsics_config.fix_stereo_rotation = true;
+    stereo_extrinsics_config.fix_stereo_yz_translation = true;
+    stereo_extrinsics_config.stereo_tx_delta_bound = max_translation_delta;
+
+    BAResult stereo_extrinsics_result = ba_service_->RunBundleAdjustment(
+        state, active_frames, stereo_extrinsics_config, -1);
+    const double stereo_translation_delta = stereo_extrinsics_result.success
+        ? MaxStereoTranslationDelta(fixed_stereo_extrinsics_snapshot, state)
+        : -1.0;
+    const double stereo_rotation_delta = stereo_extrinsics_result.success
+        ? MaxStereoRotationDelta(fixed_stereo_extrinsics_snapshot, state)
+        : -1.0;
+    const FrameDistanceRmsStats refined_frame_distance_rms =
+        stereo_extrinsics_result.success && guard_frame_distance_rms
+            ? EstimateFrameDistanceRmsError(
+                  frames,
+                  active_frames,
+                  config.frame_distance_prior_stride,
+                  config.frame_distance_prior_max_stride)
+            : FrameDistanceRmsStats{};
+    const bool frame_distance_rms_ok =
+        !guard_frame_distance_rms ||
+        !fixed_frame_distance_rms.valid ||
+        !refined_frame_distance_rms.valid ||
+        refined_frame_distance_rms.rms_error <=
+            fixed_frame_distance_rms.rms_error +
+            std::max(0.0, max_frame_distance_rms_increase) + 1e-12;
+
+    if (stereo_extrinsics_result.success &&
+        ShouldAcceptStereoExtrinsicsRefine(fixed_stereo_extrinsics_rmse,
+                                           stereo_extrinsics_result.final_rmse,
+                                           stereo_translation_delta,
+                                           stereo_rotation_delta,
+                                           min_rmse_decrease,
+                                           max_translation_delta,
+                                           max_rotation_delta) &&
+        frame_distance_rms_ok) {
+      final_ba_result = stereo_extrinsics_result;
+      result.final_reproj_error = stereo_extrinsics_result.final_rmse;
+      std::cout << "[Final Stereo Extrinsics Refine] accepted"
+                << ", reproj_rmse=" << std::fixed << std::setprecision(4)
+                << stereo_extrinsics_result.final_rmse << " px"
+                << ", fixed_extrinsics_rmse=" << fixed_stereo_extrinsics_rmse
+                << " px"
+                << ", rmse_decrease="
+                << (fixed_stereo_extrinsics_rmse - stereo_extrinsics_result.final_rmse)
+                << " px"
+                << ", max_stereo_translation_delta=" << stereo_translation_delta
+                << " m"
+                << ", max_stereo_rotation_delta=" << stereo_rotation_delta
+                << " rad";
+      if (guard_frame_distance_rms) {
+        std::cout << ", frame_distance_rms_before="
+                  << fixed_frame_distance_rms.rms_error
+                  << " m"
+                  << ", frame_distance_rms_after="
+                  << refined_frame_distance_rms.rms_error
+                  << " m"
+                  << ", frame_distance_pair_count="
+                  << refined_frame_distance_rms.pair_count;
+      }
+      std::cout << std::endl;
+
+      StereoCamera current = BuildCamera(state);
+      eval_service_->PrintCurrentVsGroundTruth("Final Stereo Extrinsics Refine", current);
+      eval_service_->RecordOptimizationStage("Final Stereo Extrinsics Refine",
+                                             stereo_extrinsics_result.final_rmse,
+                                             current);
+    } else {
+      RestoreBAStateSnapshot(fixed_stereo_extrinsics_snapshot, state, frames, tracks);
+      const double attempted_rmse = stereo_extrinsics_result.success
+                                        ? stereo_extrinsics_result.final_rmse
+                                        : -1.0;
+      const double attempted_rmse_decrease = stereo_extrinsics_result.success
+          ? fixed_stereo_extrinsics_rmse - stereo_extrinsics_result.final_rmse
+          : 0.0;
+      std::cout << "[Final Stereo Extrinsics Refine] rejected"
+                << ", fixed_extrinsics_rmse=" << std::fixed << std::setprecision(4)
+                << fixed_stereo_extrinsics_rmse << " px"
+                << ", attempted_rmse=" << attempted_rmse << " px"
+                << ", rmse_decrease=" << attempted_rmse_decrease << " px"
+                << ", max_stereo_translation_delta=" << stereo_translation_delta
+                << " m"
+                << ", max_stereo_rotation_delta=" << stereo_rotation_delta
+                << " rad"
+                << ", required_rmse_decrease=" << min_rmse_decrease
+                << " px"
+                << ", allowed_stereo_translation_delta=" << max_translation_delta
+                << " m"
+                << ", allowed_stereo_rotation_delta=" << max_rotation_delta
+                << " rad";
+      if (guard_frame_distance_rms) {
+        std::cout << ", frame_distance_rms_before="
+                  << fixed_frame_distance_rms.rms_error
+                  << " m"
+                  << ", frame_distance_rms_after="
+                  << refined_frame_distance_rms.rms_error
+                  << " m"
+                  << ", allowed_frame_distance_rms_increase="
+                  << std::max(0.0, max_frame_distance_rms_increase)
+                  << " m"
+                  << ", frame_distance_pair_count="
+                  << refined_frame_distance_rms.pair_count;
+      }
+      std::cout << std::endl;
     }
   }
 

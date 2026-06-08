@@ -172,6 +172,15 @@ std::string Basename(const std::string& path)
   return path.substr(slash_pos + 1);
 }
 
+std::string SequenceIdFromFrameId(const std::string& frame_id)
+{
+  const size_t sep = frame_id.find(':');
+  if (sep != std::string::npos) {
+    return frame_id.substr(0, sep);
+  }
+  return std::string();
+}
+
 std::string PointKey(int image_idx, const cv::Point2f& pt)
 {
   const int x100 = static_cast<int>(std::round(pt.x * 100.0f));
@@ -422,6 +431,7 @@ bool BuildTracks(const std::vector<RawImagePair>& pairs,
       frame_map[img.frame_id] = fidx;
       FrameState frame;
       frame.frame_id = img.frame_id;
+      frame.sequence_id = SequenceIdFromFrameId(img.frame_id);
       frames.push_back(frame);
       frame_ids.push_back(img.frame_id);
       img.frame_idx = fidx;

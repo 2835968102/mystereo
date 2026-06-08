@@ -25,11 +25,35 @@ void PrintUsage()
             << "[--max_iter 200] [--incremental_max_iter 20] [--per_frame_max_iter 5] [--global_opt_interval 5] "
             << "[--enable_per_frame_correction] [--min_track_len 3] [--huber 1.0] [--max_score 1.0] "
             << "[--min_pair_inliers 12] [--min_pair_inlier_ratio 0.35] "
-            << "[--fix_distortion] [KITTI default: optimize principal point after a fixed-principal-point final BA pass] [--aspect_ratio_prior 1.0] "
-            << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
+            << "[--fix_distortion] [--fix_focal_length] [--normalize_initial_focal_to_mean] "
+            << "[--normalize_initial_stereo_translation_to_x_axis] "
+            << "[--initialize_frame_poses_from_external] [--fix_external_frame_poses] "
+            << "[--fix_external_frame_rotations] [--fix_external_frame_translations] "
+            << "[KITTI default: optimize principal point after a fixed-principal-point final BA pass] [--aspect_ratio_prior 1.0] "
+            << "[--baseline_prior 10.0] [--tx_prior 0.0] [--focal_prior 0.0] [--focal_mean_prior 0.0] "
+            << "[--stereo_intrinsics_consistency 0.0] [--principal_point_mean_prior 0.0] "
+            << "[--frame_distance_prior 0.0] [--frame_position_prior 0.0] "
+            << "[--frame_translation_vector_prior 0.0] "
+            << "[--frame_translation_direction_prior 0.0] "
+            << "[--frame_distance_prior_stride 1] "
+            << "[--frame_distance_prior_max_stride 1] "
+            << "[--frame_rotation_angle_prior 0.0] [--frame_rotation_vector_prior 0.0] "
+            << "[--frame_absolute_rotation_prior 0.0] "
+            << "[--focal_lower_scale 0.5] [--focal_upper_scale 1.5] "
+            << "[--per_frame_max_rmse 5.0] [--per_frame_max_rmse_growth 3.0] "
             << "[--enable_incremental_free_principal_point_refine] [--incremental_free_principal_point_max_iter 8] "
             << "[--min_active_frames_for_free_principal_point 20] [--free_principal_point_every_n_global_ba 2] "
             << "[--free_principal_point_max_rmse_increase 0.05] "
+            << "[--free_principal_point_min_rmse_decrease 0.005] [--free_principal_point_max_delta 3.0] "
+            << "[--free_principal_point_release_focal_length] [--free_principal_point_max_focal_delta 0.0] "
+            << "[--final_free_principal_point_min_rmse_decrease 0.02] [--final_free_principal_point_max_delta 3.0] "
+            << "[--final_free_principal_point_release_focal_length] [--final_free_principal_point_max_focal_delta 0.0] "
+            << "[--optimize_stereo_tx_in_final_global_ba] "
+            << "[--enable_final_stereo_extrinsics_refine] [--final_stereo_extrinsics_max_iter 12] "
+            << "[--final_stereo_extrinsics_min_rmse_decrease 0.001] "
+            << "[--final_stereo_extrinsics_max_translation_delta 0.02] "
+            << "[--final_stereo_extrinsics_max_rotation_delta 0.002] "
+            << "[--final_stereo_extrinsics_max_frame_distance_rms_increase -1] "
             << "[--reset_camera_params_each_ba_round] "
             << "[--max_reproj_error 20.0] [--outlier_threshold 2.0] [--outlier_rounds 3]"
             << std::endl;
@@ -92,6 +116,22 @@ int main(int argc, char** argv)
       config.min_pair_inlier_ratio = std::stod(argv[++i]);
     } else if (arg == "--fix_distortion") {
       config.fix_distortion = true;
+    } else if (arg == "--fix_focal_length") {
+      config.fix_focal_length = true;
+    } else if (arg == "--fix_principal_point") {
+      config.fix_principal_point = true;
+    } else if (arg == "--normalize_initial_focal_to_mean") {
+      config.normalize_initial_focal_to_mean = true;
+    } else if (arg == "--normalize_initial_stereo_translation_to_x_axis") {
+      config.normalize_initial_stereo_translation_to_x_axis = true;
+    } else if (arg == "--initialize_frame_poses_from_external") {
+      config.initialize_frame_poses_from_external = true;
+    } else if (arg == "--fix_external_frame_poses") {
+      config.fix_external_frame_poses = true;
+    } else if (arg == "--fix_external_frame_rotations") {
+      config.fix_external_frame_rotations = true;
+    } else if (arg == "--fix_external_frame_translations") {
+      config.fix_external_frame_translations = true;
     } else if (arg == "--aspect_ratio_prior" && i + 1 < argc) {
       config.aspect_ratio_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--max_reproj_error" && i + 1 < argc) {
@@ -102,10 +142,38 @@ int main(int argc, char** argv)
       config.tx_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--focal_prior" && i + 1 < argc) {
       config.focal_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--focal_mean_prior" && i + 1 < argc) {
+      config.focal_mean_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--stereo_intrinsics_consistency" && i + 1 < argc) {
+      config.stereo_intrinsics_consistency_weight = std::stod(argv[++i]);
+    } else if (arg == "--principal_point_mean_prior" && i + 1 < argc) {
+      config.principal_point_mean_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_distance_prior" && i + 1 < argc) {
+      config.frame_distance_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_position_prior" && i + 1 < argc) {
+      config.frame_position_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_translation_vector_prior" && i + 1 < argc) {
+      config.frame_translation_vector_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_translation_direction_prior" && i + 1 < argc) {
+      config.frame_translation_direction_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_distance_prior_stride" && i + 1 < argc) {
+      config.frame_distance_prior_stride = std::stoi(argv[++i]);
+    } else if (arg == "--frame_distance_prior_max_stride" && i + 1 < argc) {
+      config.frame_distance_prior_max_stride = std::stoi(argv[++i]);
+    } else if (arg == "--frame_rotation_angle_prior" && i + 1 < argc) {
+      config.frame_rotation_angle_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_rotation_vector_prior" && i + 1 < argc) {
+      config.frame_rotation_vector_prior_weight = std::stod(argv[++i]);
+    } else if (arg == "--frame_absolute_rotation_prior" && i + 1 < argc) {
+      config.frame_absolute_rotation_prior_weight = std::stod(argv[++i]);
     } else if (arg == "--focal_lower_scale" && i + 1 < argc) {
       config.focal_lower_scale = std::stod(argv[++i]);
     } else if (arg == "--focal_upper_scale" && i + 1 < argc) {
       config.focal_upper_scale = std::stod(argv[++i]);
+    } else if (arg == "--per_frame_max_rmse" && i + 1 < argc) {
+      config.per_frame_max_rmse = std::stod(argv[++i]);
+    } else if (arg == "--per_frame_max_rmse_growth" && i + 1 < argc) {
+      config.per_frame_max_rmse_growth = std::stod(argv[++i]);
     } else if (arg == "--enable_per_frame_correction") {
       config.enable_per_frame_correction = true;
     } else if (arg == "--enable_incremental_free_principal_point_refine") {
@@ -118,6 +186,38 @@ int main(int argc, char** argv)
       config.free_principal_point_every_n_global_ba = std::stoi(argv[++i]);
     } else if (arg == "--free_principal_point_max_rmse_increase" && i + 1 < argc) {
       config.free_principal_point_max_rmse_increase = std::stod(argv[++i]);
+    } else if (arg == "--free_principal_point_min_rmse_decrease" && i + 1 < argc) {
+      config.free_principal_point_min_rmse_decrease = std::stod(argv[++i]);
+    } else if (arg == "--free_principal_point_max_delta" && i + 1 < argc) {
+      config.free_principal_point_max_delta = std::stod(argv[++i]);
+    } else if (arg == "--free_principal_point_release_focal_length") {
+      config.free_principal_point_fix_focal_length = false;
+    } else if (arg == "--free_principal_point_max_focal_delta" && i + 1 < argc) {
+      config.free_principal_point_max_focal_delta = std::stod(argv[++i]);
+    } else if (arg == "--final_free_principal_point_min_rmse_decrease" && i + 1 < argc) {
+      config.final_free_principal_point_min_rmse_decrease = std::stod(argv[++i]);
+    } else if (arg == "--final_free_principal_point_max_delta" && i + 1 < argc) {
+      config.final_free_principal_point_max_delta = std::stod(argv[++i]);
+    } else if (arg == "--final_free_principal_point_release_focal_length") {
+      config.final_free_principal_point_fix_focal_length = false;
+    } else if (arg == "--final_free_principal_point_max_focal_delta" && i + 1 < argc) {
+      config.final_free_principal_point_max_focal_delta = std::stod(argv[++i]);
+    } else if (arg == "--optimize_stereo_tx_in_final_global_ba") {
+      config.optimize_stereo_tx_in_final_global_ba = true;
+    } else if (arg == "--enable_final_stereo_extrinsics_refine") {
+      config.enable_final_stereo_extrinsics_refine = true;
+    } else if (arg == "--final_stereo_extrinsics_max_iter" && i + 1 < argc) {
+      config.final_stereo_extrinsics_max_iter = std::stoi(argv[++i]);
+    } else if (arg == "--final_stereo_extrinsics_min_rmse_decrease" && i + 1 < argc) {
+      config.final_stereo_extrinsics_min_rmse_decrease = std::stod(argv[++i]);
+    } else if (arg == "--final_stereo_extrinsics_max_translation_delta" && i + 1 < argc) {
+      config.final_stereo_extrinsics_max_translation_delta = std::stod(argv[++i]);
+    } else if (arg == "--final_stereo_extrinsics_max_rotation_delta" && i + 1 < argc) {
+      config.final_stereo_extrinsics_max_rotation_delta = std::stod(argv[++i]);
+    } else if (arg == "--final_stereo_extrinsics_max_frame_distance_rms_increase" &&
+               i + 1 < argc) {
+      config.final_stereo_extrinsics_max_frame_distance_rms_increase =
+          std::stod(argv[++i]);
     } else if (arg == "--reset_camera_params_each_ba_round") {
       config.reset_camera_params_each_ba_round = true;
     } else if (arg == "--outlier_threshold" && i + 1 < argc) {
@@ -148,6 +248,7 @@ int main(int argc, char** argv)
   }
 
   bool init_loaded = false;
+  std::string init_source;
   if (!init_param_file.empty()) {
     init_loaded = LoadCameraFromFile(init_param_file, input.init_camera, err);
     if (!init_loaded) {
@@ -155,12 +256,15 @@ int main(int argc, char** argv)
       return 1;
     }
     std::cout << "Init mode: explicit_file (" << init_param_file << ")" << std::endl;
+    init_source = init_param_file;
   } else if (LoadCameraFromFile(kDefaultInitPathA, input.init_camera, err)) {
     init_loaded = true;
     std::cout << "Init mode: fixed_file (" << kDefaultInitPathA << ")" << std::endl;
+    init_source = kDefaultInitPathA;
   } else if (LoadCameraFromFile(kDefaultInitPathB, input.init_camera, err)) {
     init_loaded = true;
     std::cout << "Init mode: fixed_file (" << kDefaultInitPathB << ")" << std::endl;
+    init_source = kDefaultInitPathB;
   }
   if (!init_loaded) {
     std::cerr << err << std::endl;
@@ -192,7 +296,17 @@ int main(int argc, char** argv)
     return 1;
   }
   if (gt.has_gt) {
-    std::cout << "Ground truth loaded from: " << gt.source << std::endl;
+    std::cout << "Ground truth loaded for final evaluation only from: "
+              << gt.source << std::endl;
+  }
+  if (!RejectGtLikeInitialization(input.init_camera,
+                                  gt,
+                                  config.normalize_initial_focal_to_mean,
+                                  config.fix_focal_length,
+                                  init_source,
+                                  err)) {
+    std::cerr << err << std::endl;
+    return 1;
   }
 
   if (frame_poses_file.empty()) {
@@ -215,9 +329,6 @@ int main(int argc, char** argv)
   }
 
   OptimizationCoordinator coordinator;
-  if (gt.has_gt) {
-    coordinator.SetGroundTruth(gt.camera);
-  }
   if (poses_loaded) {
     coordinator.LoadFramePoses(input_poses_json);
   }

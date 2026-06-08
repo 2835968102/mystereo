@@ -1,10 +1,365 @@
 #include "services/bundle_adjustment_service.h"
 
+#include <algorithm>
 #include <cmath>
+
+#include <opencv2/calib3d.hpp>
+#include <opencv2/core.hpp>
 
 #include "stereo_factors.h"
 
 namespace stereocalib {
+
+namespace {
+
+bool CameraCenterWorldFromFrame(const FrameState& frame, cv::Vec3d& center) {
+  if (frame.rvec.size() < 3 || frame.tvec.size() < 3) {
+    return false;
+  }
+  const cv::Mat rvec = (cv::Mat_<double>(3, 1)
+      << frame.rvec[0], frame.rvec[1], frame.rvec[2]);
+  cv::Mat R_lw;
+  cv::Rodrigues(rvec, R_lw);
+  const cv::Mat t_lw = (cv::Mat_<double>(3, 1)
+      << frame.tvec[0], frame.tvec[1], frame.tvec[2]);
+  const cv::Mat c = -R_lw.t() * t_lw;
+  if (!cv::checkRange(c)) {
+    return false;
+  }
+  center = cv::Vec3d(c.at<double>(0, 0), c.at<double>(1, 0), c.at<double>(2, 0));
+  return true;
+}
+
+struct AlignedFramePositionTargets {
+  std::vector<cv::Vec3d> centers;
+  std::vector<char> valid;
+  size_t count = 0;
+};
+
+struct AlignedFrameRotationTargets {
+  std::vector<cv::Vec3d> rvecs;
+  std::vector<char> valid;
+  size_t count = 0;
+};
+
+struct AlignedAbsoluteFrameRotationTargets {
+  std::vector<cv::Vec3d> rvecs;
+  std::vector<char> valid;
+  size_t count = 0;
+};
+
+bool FrameRotationMatrix(const FrameState& frame, cv::Mat& R) {
+  if (frame.rvec.size() < 3) {
+    return false;
+  }
+  const cv::Mat rvec = (cv::Mat_<double>(3, 1)
+      << frame.rvec[0], frame.rvec[1], frame.rvec[2]);
+  cv::Rodrigues(rvec, R);
+  return cv::checkRange(R);
+}
+
+bool FrameTargetRotationMatrix(const FrameState& frame, cv::Mat& R) {
+  if (!frame.has_gt_pose || frame.gt_rvec.size() < 3) {
+    return false;
+  }
+  const cv::Mat rvec = (cv::Mat_<double>(3, 1)
+      << frame.gt_rvec[0], frame.gt_rvec[1], frame.gt_rvec[2]);
+  cv::Rodrigues(rvec, R);
+  return cv::checkRange(R);
+}
+
+cv::Vec3d RotationVectorFromMatrix(const cv::Mat& R) {
+  cv::Mat rvec;
+  cv::Rodrigues(R, rvec);
+  return cv::Vec3d(rvec.at<double>(0, 0),
+                   rvec.at<double>(1, 0),
+                   rvec.at<double>(2, 0));
+}
+
+bool SameFrameSequence(const FrameState& a, const FrameState& b) {
+  return a.sequence_id.empty() ||
+         b.sequence_id.empty() ||
+         a.sequence_id == b.sequence_id;
+}
+
+double ComputeReprojectionRmse(const BAState& state,
+                               const std::vector<FrameState>& frames,
+                               const std::vector<Track>& tracks,
+                               const std::vector<char>& active_frames) {
+  double squared_error_sum = 0.0;
+  size_t residual_dims = 0;
+  for (size_t ti = 0; ti < tracks.size(); ++ti) {
+    const Track& track = tracks[ti];
+    if (track.point3d.size() < 3) {
+      continue;
+    }
+
+    int active_obs = 0;
+    for (const TrackObservation& obs : track.observations) {
+      if (obs.rejected) {
+        continue;
+      }
+      if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames.size())) {
+        continue;
+      }
+      if (obs.frame_idx >= static_cast<int>(active_frames.size()) ||
+          !active_frames[obs.frame_idx]) {
+        continue;
+      }
+      active_obs++;
+    }
+    if (active_obs < 2) {
+      continue;
+    }
+
+    for (const TrackObservation& obs : track.observations) {
+      if (obs.rejected) {
+        continue;
+      }
+      if (obs.frame_idx < 0 || obs.frame_idx >= static_cast<int>(frames.size())) {
+        continue;
+      }
+      if (obs.frame_idx >= static_cast<int>(active_frames.size()) ||
+          !active_frames[obs.frame_idx]) {
+        continue;
+      }
+
+      const FrameState& frame = frames[obs.frame_idx];
+      if (frame.rvec.size() < 3 || frame.tvec.size() < 3 ||
+          state.intrinsics_left.size() < 9 ||
+          state.intrinsics_right.size() < 9 ||
+          state.extrinsics.size() < 6) {
+        continue;
+      }
+
+      double residual[2] = {0.0, 0.0};
+      TrackReprojFactor factor(obs.px, obs.is_left);
+      factor(state.intrinsics_left.data(),
+             state.intrinsics_right.data(),
+             state.extrinsics.data(),
+             frame.rvec.data(),
+             frame.tvec.data(),
+             track.point3d.data(),
+             residual);
+      if (!std::isfinite(residual[0]) || !std::isfinite(residual[1])) {
+        continue;
+      }
+      squared_error_sum += residual[0] * residual[0] + residual[1] * residual[1];
+      residual_dims += 2;
+    }
+  }
+
+  if (residual_dims == 0) {
+    return 0.0;
+  }
+  return std::sqrt(squared_error_sum / static_cast<double>(residual_dims));
+}
+
+AlignedFramePositionTargets EstimateAlignedFramePositionTargets(
+    const std::vector<FrameState>& frames,
+    const std::vector<char>& active_frames) {
+  AlignedFramePositionTargets targets;
+  targets.centers.assign(frames.size(), cv::Vec3d(0.0, 0.0, 0.0));
+  targets.valid.assign(frames.size(), 0);
+
+  std::vector<cv::Vec3d> current_centers;
+  std::vector<cv::Vec3d> oxts_centers;
+  std::vector<size_t> frame_indices;
+  current_centers.reserve(frames.size());
+  oxts_centers.reserve(frames.size());
+  frame_indices.reserve(frames.size());
+
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (fi >= active_frames.size() || !active_frames[fi]) {
+      continue;
+    }
+    if (!frames[fi].has_gt_pose || frames[fi].gt_tvec.size() < 3) {
+      continue;
+    }
+    cv::Vec3d current_center;
+    if (!CameraCenterWorldFromFrame(frames[fi], current_center)) {
+      continue;
+    }
+    current_centers.push_back(current_center);
+    oxts_centers.emplace_back(
+        frames[fi].gt_tvec[0],
+        frames[fi].gt_tvec[1],
+        frames[fi].gt_tvec[2]);
+    frame_indices.push_back(fi);
+  }
+
+  if (current_centers.size() < 4) {
+    return targets;
+  }
+
+  cv::Vec3d mean_current(0.0, 0.0, 0.0);
+  cv::Vec3d mean_oxts(0.0, 0.0, 0.0);
+  for (size_t i = 0; i < current_centers.size(); ++i) {
+    mean_current += current_centers[i];
+    mean_oxts += oxts_centers[i];
+  }
+  const double n = static_cast<double>(current_centers.size());
+  mean_current *= 1.0 / n;
+  mean_oxts *= 1.0 / n;
+
+  cv::Mat covariance = cv::Mat::zeros(3, 3, CV_64F);
+  double variance_oxts = 0.0;
+  for (size_t i = 0; i < current_centers.size(); ++i) {
+    const cv::Vec3d x = oxts_centers[i] - mean_oxts;
+    const cv::Vec3d y = current_centers[i] - mean_current;
+    variance_oxts += x.dot(x) / n;
+    for (int row = 0; row < 3; ++row) {
+      for (int col = 0; col < 3; ++col) {
+        covariance.at<double>(row, col) += y[row] * x[col] / n;
+      }
+    }
+  }
+  constexpr double kMinOxtsRmsSpreadMeters = 0.5;
+  if (variance_oxts <= kMinOxtsRmsSpreadMeters * kMinOxtsRmsSpreadMeters ||
+      !cv::checkRange(covariance)) {
+    return targets;
+  }
+
+  cv::SVD svd(covariance, cv::SVD::FULL_UV);
+  cv::Mat D = cv::Mat::eye(3, 3, CV_64F);
+  cv::Mat R = svd.u * svd.vt;
+  if (cv::determinant(R) < 0.0) {
+    D.at<double>(2, 2) = -1.0;
+    R = svd.u * D * svd.vt;
+  }
+
+  double scale_numerator = 0.0;
+  for (int i = 0; i < 3; ++i) {
+    scale_numerator += D.at<double>(i, i) * svd.w.at<double>(i, 0);
+  }
+  const double scale = scale_numerator / variance_oxts;
+  if (!std::isfinite(scale) || scale <= 0.0) {
+    return targets;
+  }
+
+  const cv::Mat mean_current_mat = (cv::Mat_<double>(3, 1)
+      << mean_current[0], mean_current[1], mean_current[2]);
+  const cv::Mat mean_oxts_mat = (cv::Mat_<double>(3, 1)
+      << mean_oxts[0], mean_oxts[1], mean_oxts[2]);
+  const cv::Mat translation = mean_current_mat - scale * R * mean_oxts_mat;
+  if (!cv::checkRange(R) || !cv::checkRange(translation)) {
+    return targets;
+  }
+
+  for (size_t i = 0; i < frame_indices.size(); ++i) {
+    const cv::Vec3d& oxts = oxts_centers[i];
+    const cv::Mat p = (cv::Mat_<double>(3, 1) << oxts[0], oxts[1], oxts[2]);
+    const cv::Mat aligned = scale * R * p + translation;
+    const size_t fi = frame_indices[i];
+    targets.centers[fi] = cv::Vec3d(
+        aligned.at<double>(0, 0),
+        aligned.at<double>(1, 0),
+        aligned.at<double>(2, 0));
+    targets.valid[fi] = 1;
+    targets.count++;
+  }
+  return targets;
+}
+
+AlignedFrameRotationTargets EstimateAlignedFrameRotationTargets(
+    const std::vector<FrameState>& frames,
+    const std::vector<char>& active_frames,
+    int min_stride,
+    int max_stride) {
+  AlignedFrameRotationTargets targets;
+  targets.rvecs.assign(frames.size() * frames.size(), cv::Vec3d(0.0, 0.0, 0.0));
+  targets.valid.assign(frames.size() * frames.size(), 0);
+  if (frames.empty()) {
+    return targets;
+  }
+
+  const int first_stride = std::max(1, min_stride);
+  const int last_stride = std::max(first_stride, max_stride);
+  constexpr double kMinTargetRotationRad = 1e-4;
+  for (int stride = first_stride; stride <= last_stride; ++stride) {
+    for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+      const size_t fj = fi + static_cast<size_t>(stride);
+      if (fi >= active_frames.size() || fj >= active_frames.size() ||
+          !active_frames[fi] || !active_frames[fj]) {
+        continue;
+      }
+      if (!SameFrameSequence(frames[fi], frames[fj])) {
+        continue;
+      }
+      cv::Mat R_current_i;
+      cv::Mat R_current_j;
+      cv::Mat R_oxts_i;
+      cv::Mat R_oxts_j;
+      if (!FrameRotationMatrix(frames[fi], R_current_i) ||
+          !FrameRotationMatrix(frames[fj], R_current_j) ||
+          !FrameTargetRotationMatrix(frames[fi], R_oxts_i) ||
+          !FrameTargetRotationMatrix(frames[fj], R_oxts_j)) {
+        continue;
+      }
+
+      const cv::Vec3d oxts_rvec =
+          RotationVectorFromMatrix(R_oxts_j * R_oxts_i.t());
+      if (cv::norm(oxts_rvec) < kMinTargetRotationRad) {
+        continue;
+      }
+      const size_t index = fi * frames.size() + fj;
+      targets.rvecs[index] = oxts_rvec;
+      targets.valid[index] = 1;
+      targets.count++;
+    }
+  }
+  return targets;
+}
+
+AlignedAbsoluteFrameRotationTargets EstimateAlignedAbsoluteFrameRotationTargets(
+    const std::vector<FrameState>& frames,
+    const std::vector<char>& active_frames,
+    int anchor_frame_idx) {
+  AlignedAbsoluteFrameRotationTargets targets;
+  targets.rvecs.assign(frames.size(), cv::Vec3d(0.0, 0.0, 0.0));
+  targets.valid.assign(frames.size(), 0);
+  if (frames.empty() ||
+      anchor_frame_idx < 0 ||
+      anchor_frame_idx >= static_cast<int>(frames.size()) ||
+      anchor_frame_idx >= static_cast<int>(active_frames.size()) ||
+      !active_frames[anchor_frame_idx]) {
+    return targets;
+  }
+
+  cv::Mat R_current_anchor;
+  cv::Mat R_target_anchor;
+  if (!FrameRotationMatrix(frames[anchor_frame_idx], R_current_anchor) ||
+      !FrameTargetRotationMatrix(frames[anchor_frame_idx], R_target_anchor)) {
+    return targets;
+  }
+  // Frame rotations are world-to-camera. A BA gauge rotation therefore
+  // right-multiplies all frame rotations, so align external absolute
+  // rotations through the fixed anchor on the right.
+  const cv::Mat R_gauge = R_target_anchor.t() * R_current_anchor;
+  if (!cv::checkRange(R_gauge)) {
+    return targets;
+  }
+
+  for (size_t fi = 0; fi < frames.size(); ++fi) {
+    if (fi >= active_frames.size() || !active_frames[fi]) {
+      continue;
+    }
+    cv::Mat R_target;
+    if (!FrameTargetRotationMatrix(frames[fi], R_target)) {
+      continue;
+    }
+    const cv::Mat R_aligned = R_target * R_gauge;
+    if (!cv::checkRange(R_aligned)) {
+      continue;
+    }
+    targets.rvecs[fi] = RotationVectorFromMatrix(R_aligned);
+    targets.valid[fi] = 1;
+    targets.count++;
+  }
+  return targets;
+}
+
+}  // namespace
 
 BAResult BundleAdjustmentService::RunBundleAdjustment(
     BAState& state,
@@ -84,6 +439,8 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
   if (active_residuals == 0) {
     return result;
   }
+  const double initial_reprojection_rmse =
+      ComputeReprojectionRmse(state, frames, tracks, active_frames);
 
   // Add priors.
   // KITTI 的 rectified stereo 初值通常比较可靠，这些软约束用于防止
@@ -118,9 +475,325 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     problem.AddResidualBlock(focal_right, nullptr, state.intrinsics_right.data());
   }
 
+  if (config.focal_mean_prior_weight > 0.0 &&
+      state.init_intrinsics_left.size() >= 2 &&
+      state.init_intrinsics_right.size() >= 2) {
+    const double target_focal =
+        0.25 * (state.init_intrinsics_left[0] +
+                state.init_intrinsics_left[1] +
+                state.init_intrinsics_right[0] +
+                state.init_intrinsics_right[1]);
+    ceres::CostFunction* focal_mean_left = FocalMeanPriorFactor::Create(
+        target_focal, config.focal_mean_prior_weight);
+    ceres::CostFunction* focal_mean_right = FocalMeanPriorFactor::Create(
+        target_focal, config.focal_mean_prior_weight);
+    problem.AddResidualBlock(focal_mean_left, nullptr, state.intrinsics_left.data());
+    problem.AddResidualBlock(focal_mean_right, nullptr, state.intrinsics_right.data());
+  }
+
+  if (config.stereo_intrinsics_consistency_weight > 0.0) {
+    ceres::CostFunction* stereo_intrinsics =
+        StereoIntrinsicsConsistencyFactor::Create(config.stereo_intrinsics_consistency_weight);
+    problem.AddResidualBlock(stereo_intrinsics,
+                             nullptr,
+                             state.intrinsics_left.data(),
+                             state.intrinsics_right.data());
+  }
+
+  if (config.principal_point_mean_prior_weight > 0.0 &&
+      state.init_intrinsics_left.size() >= 4 &&
+      state.init_intrinsics_right.size() >= 4) {
+    const double target_cx =
+        0.5 * (state.init_intrinsics_left[2] + state.init_intrinsics_right[2]);
+    const double target_cy =
+        0.5 * (state.init_intrinsics_left[3] + state.init_intrinsics_right[3]);
+    ceres::CostFunction* pp_left = PrincipalPointMeanPriorFactor::Create(
+        target_cx, target_cy, config.principal_point_mean_prior_weight);
+    ceres::CostFunction* pp_right = PrincipalPointMeanPriorFactor::Create(
+        target_cx, target_cy, config.principal_point_mean_prior_weight);
+    problem.AddResidualBlock(pp_left, nullptr, state.intrinsics_left.data());
+    problem.AddResidualBlock(pp_right, nullptr, state.intrinsics_right.data());
+  }
+
+  if (config.frame_distance_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const int min_stride = std::max(1, config.frame_distance_prior_stride);
+    const int max_stride = std::max(min_stride, config.frame_distance_prior_max_stride);
+    const double stride_count = static_cast<double>(max_stride - min_stride + 1);
+    const double per_stride_weight =
+        config.frame_distance_prior_weight / std::sqrt(std::max(1.0, stride_count));
+    for (int stride = min_stride; stride <= max_stride; ++stride) {
+      for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+        const size_t fj = fi + static_cast<size_t>(stride);
+        if (fi >= active_frames.size() || fj >= active_frames.size() ||
+            !active_frames[fi] || !active_frames[fj]) {
+          continue;
+        }
+        if (!SameFrameSequence(frames[fi], frames[fj])) {
+          continue;
+        }
+        if (!frames[fi].has_gt_pose || !frames[fj].has_gt_pose ||
+            frames[fi].gt_tvec.size() < 3 || frames[fj].gt_tvec.size() < 3) {
+          continue;
+        }
+        const double dx = frames[fi].gt_tvec[0] - frames[fj].gt_tvec[0];
+        const double dy = frames[fi].gt_tvec[1] - frames[fj].gt_tvec[1];
+        const double dz = frames[fi].gt_tvec[2] - frames[fj].gt_tvec[2];
+        const double target_distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        constexpr double kMinFrameDistancePriorMeters = 0.2;
+        if (target_distance < kMinFrameDistancePriorMeters) {
+          continue;
+        }
+        ceres::CostFunction* distance_prior = FrameDistancePriorFactor::Create(
+            target_distance, per_stride_weight);
+        problem.AddResidualBlock(distance_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data(),
+                                 frames[fi].tvec.data(),
+                                 frames[fj].rvec.data(),
+                                 frames[fj].tvec.data());
+      }
+    }
+  }
+
+  if (config.frame_position_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const AlignedFramePositionTargets position_targets =
+        EstimateAlignedFramePositionTargets(frames, active_frames);
+    if (position_targets.count >= 4) {
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (fi >= active_frames.size() || !active_frames[fi] ||
+            fi >= position_targets.valid.size() ||
+            !position_targets.valid[fi]) {
+          continue;
+        }
+        ceres::CostFunction* position_prior = FramePositionPriorFactor::Create(
+            position_targets.centers[fi], config.frame_position_prior_weight);
+        problem.AddResidualBlock(position_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data(),
+                                 frames[fi].tvec.data());
+      }
+    }
+  }
+
+  if (config.frame_translation_vector_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const int min_stride = std::max(1, config.frame_distance_prior_stride);
+    const int max_stride = std::max(min_stride, config.frame_distance_prior_max_stride);
+    const double stride_count = static_cast<double>(max_stride - min_stride + 1);
+    const double per_stride_weight =
+        config.frame_translation_vector_prior_weight /
+        std::sqrt(std::max(1.0, stride_count));
+    for (int stride = min_stride; stride <= max_stride; ++stride) {
+      for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+        const size_t fj = fi + static_cast<size_t>(stride);
+        if (fi >= active_frames.size() || fj >= active_frames.size() ||
+            !active_frames[fi] || !active_frames[fj]) {
+          continue;
+        }
+        if (!SameFrameSequence(frames[fi], frames[fj])) {
+          continue;
+        }
+        if (!frames[fi].has_gt_pose || !frames[fj].has_gt_pose ||
+            frames[fi].gt_tvec.size() < 3 || frames[fj].gt_tvec.size() < 3 ||
+            frames[fi].gt_rvec.size() < 3) {
+          continue;
+        }
+        cv::Mat R_target_i;
+        if (!FrameTargetRotationMatrix(frames[fi], R_target_i)) {
+          continue;
+        }
+        const cv::Mat target_delta_world = (cv::Mat_<double>(3, 1)
+            << frames[fj].gt_tvec[0] - frames[fi].gt_tvec[0],
+               frames[fj].gt_tvec[1] - frames[fi].gt_tvec[1],
+               frames[fj].gt_tvec[2] - frames[fi].gt_tvec[2]);
+        constexpr double kMinFrameTranslationPriorMeters = 0.2;
+        if (cv::norm(target_delta_world) < kMinFrameTranslationPriorMeters) {
+          continue;
+        }
+        const cv::Mat target_delta_i = R_target_i * target_delta_world;
+        if (!cv::checkRange(target_delta_i)) {
+          continue;
+        }
+        const cv::Vec3d target_delta(
+            target_delta_i.at<double>(0, 0),
+            target_delta_i.at<double>(1, 0),
+            target_delta_i.at<double>(2, 0));
+        ceres::CostFunction* translation_prior =
+            FrameTranslationVectorPriorFactor::Create(
+                target_delta, per_stride_weight);
+        problem.AddResidualBlock(translation_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data(),
+                                 frames[fi].tvec.data(),
+                                 frames[fj].rvec.data(),
+                                 frames[fj].tvec.data());
+      }
+    }
+  }
+
+  if (config.frame_translation_direction_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const int min_stride = std::max(1, config.frame_distance_prior_stride);
+    const int max_stride = std::max(min_stride, config.frame_distance_prior_max_stride);
+    const double stride_count = static_cast<double>(max_stride - min_stride + 1);
+    const double per_stride_weight =
+        config.frame_translation_direction_prior_weight /
+        std::sqrt(std::max(1.0, stride_count));
+    for (int stride = min_stride; stride <= max_stride; ++stride) {
+      for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+        const size_t fj = fi + static_cast<size_t>(stride);
+        if (fi >= active_frames.size() || fj >= active_frames.size() ||
+            !active_frames[fi] || !active_frames[fj]) {
+          continue;
+        }
+        if (!SameFrameSequence(frames[fi], frames[fj])) {
+          continue;
+        }
+        if (!frames[fi].has_gt_pose || !frames[fj].has_gt_pose ||
+            frames[fi].gt_tvec.size() < 3 || frames[fj].gt_tvec.size() < 3 ||
+            frames[fi].gt_rvec.size() < 3) {
+          continue;
+        }
+        cv::Mat R_target_i;
+        if (!FrameTargetRotationMatrix(frames[fi], R_target_i)) {
+          continue;
+        }
+        const cv::Mat target_delta_world = (cv::Mat_<double>(3, 1)
+            << frames[fj].gt_tvec[0] - frames[fi].gt_tvec[0],
+               frames[fj].gt_tvec[1] - frames[fi].gt_tvec[1],
+               frames[fj].gt_tvec[2] - frames[fi].gt_tvec[2]);
+        constexpr double kMinFrameTranslationPriorMeters = 0.2;
+        if (cv::norm(target_delta_world) < kMinFrameTranslationPriorMeters) {
+          continue;
+        }
+        const cv::Mat target_delta_i = R_target_i * target_delta_world;
+        const double target_norm = cv::norm(target_delta_i);
+        if (!cv::checkRange(target_delta_i) || target_norm < 1e-9) {
+          continue;
+        }
+        const cv::Vec3d target_direction(
+            target_delta_i.at<double>(0, 0) / target_norm,
+            target_delta_i.at<double>(1, 0) / target_norm,
+            target_delta_i.at<double>(2, 0) / target_norm);
+        ceres::CostFunction* direction_prior =
+            FrameTranslationDirectionPriorFactor::Create(
+                target_direction, per_stride_weight);
+        problem.AddResidualBlock(direction_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data(),
+                                 frames[fi].tvec.data(),
+                                 frames[fj].rvec.data(),
+                                 frames[fj].tvec.data());
+      }
+    }
+  }
+
+  if (config.frame_rotation_angle_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const int min_stride = std::max(1, config.frame_distance_prior_stride);
+    const int max_stride = std::max(min_stride, config.frame_distance_prior_max_stride);
+    const double stride_count = static_cast<double>(max_stride - min_stride + 1);
+    const double per_stride_weight =
+        config.frame_rotation_angle_prior_weight / std::sqrt(std::max(1.0, stride_count));
+    for (int stride = min_stride; stride <= max_stride; ++stride) {
+      for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+        const size_t fj = fi + static_cast<size_t>(stride);
+        if (fi >= active_frames.size() || fj >= active_frames.size() ||
+            !active_frames[fi] || !active_frames[fj]) {
+          continue;
+        }
+        if (!SameFrameSequence(frames[fi], frames[fj])) {
+          continue;
+        }
+        if (!frames[fi].has_gt_pose || !frames[fj].has_gt_pose ||
+            frames[fi].gt_rvec.size() < 3 || frames[fj].gt_rvec.size() < 3) {
+          continue;
+        }
+        const cv::Mat rvec_i = (cv::Mat_<double>(3, 1)
+            << frames[fi].gt_rvec[0], frames[fi].gt_rvec[1], frames[fi].gt_rvec[2]);
+        const cv::Mat rvec_j = (cv::Mat_<double>(3, 1)
+            << frames[fj].gt_rvec[0], frames[fj].gt_rvec[1], frames[fj].gt_rvec[2]);
+        cv::Mat R_i;
+        cv::Mat R_j;
+        cv::Rodrigues(rvec_i, R_i);
+        cv::Rodrigues(rvec_j, R_j);
+        cv::Mat rel_rvec;
+        cv::Rodrigues(R_j * R_i.t(), rel_rvec);
+        const double target_angle = cv::norm(rel_rvec);
+        if (!std::isfinite(target_angle)) {
+          continue;
+        }
+        ceres::CostFunction* rotation_prior = FrameRotationAnglePriorFactor::Create(
+            target_angle, per_stride_weight);
+        problem.AddResidualBlock(rotation_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data(),
+                                 frames[fj].rvec.data());
+      }
+    }
+  }
+
+  if (config.frame_rotation_vector_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const int min_stride = std::max(1, config.frame_distance_prior_stride);
+    const int max_stride = std::max(min_stride, config.frame_distance_prior_max_stride);
+    const AlignedFrameRotationTargets rotation_targets =
+        EstimateAlignedFrameRotationTargets(frames, active_frames, min_stride, max_stride);
+    if (rotation_targets.count >= 3) {
+      const double stride_count = static_cast<double>(max_stride - min_stride + 1);
+      const double per_stride_weight =
+          config.frame_rotation_vector_prior_weight /
+          std::sqrt(std::max(1.0, stride_count));
+      for (int stride = min_stride; stride <= max_stride; ++stride) {
+        for (size_t fi = 0; fi + static_cast<size_t>(stride) < frames.size(); ++fi) {
+          const size_t fj = fi + static_cast<size_t>(stride);
+          const size_t target_index = fi * frames.size() + fj;
+          if (fi >= active_frames.size() || fj >= active_frames.size() ||
+              !active_frames[fi] || !active_frames[fj] ||
+              target_index >= rotation_targets.valid.size() ||
+              !rotation_targets.valid[target_index]) {
+            continue;
+          }
+          if (!SameFrameSequence(frames[fi], frames[fj])) {
+            continue;
+          }
+          ceres::CostFunction* rotation_prior =
+              FrameRotationVectorPriorFactor::Create(
+                  rotation_targets.rvecs[target_index], per_stride_weight);
+          problem.AddResidualBlock(rotation_prior,
+                                   nullptr,
+                                   frames[fi].rvec.data(),
+                                   frames[fj].rvec.data());
+        }
+      }
+    }
+  }
+
+  if (config.frame_absolute_rotation_prior_weight > 0.0 && frame_to_optimize < 0) {
+    const AlignedAbsoluteFrameRotationTargets rotation_targets =
+        EstimateAlignedAbsoluteFrameRotationTargets(
+            frames, active_frames, state.fixed_frame_idx);
+    if (rotation_targets.count >= 2) {
+      for (size_t fi = 0; fi < frames.size(); ++fi) {
+        if (fi >= active_frames.size() || !active_frames[fi] ||
+            fi >= rotation_targets.valid.size() ||
+            !rotation_targets.valid[fi]) {
+          continue;
+        }
+        ceres::CostFunction* rotation_prior =
+            FrameAbsoluteRotationPriorFactor::Create(
+                rotation_targets.rvecs[fi],
+                config.frame_absolute_rotation_prior_weight);
+        problem.AddResidualBlock(rotation_prior,
+                                 nullptr,
+                                 frames[fi].rvec.data());
+      }
+    }
+  }
+
   // Fix selected intrinsic parameters.
   // SubsetManifold 会只固定指定下标，其余内参仍可被优化。
   std::vector<int> fixed_intrinsic_indices;
+  if (config.fix_focal_length) {
+    fixed_intrinsic_indices.push_back(0);  // fx
+    fixed_intrinsic_indices.push_back(1);  // fy
+  }
   if (config.fix_principal_point) {
     fixed_intrinsic_indices.push_back(2);  // cx
     fixed_intrinsic_indices.push_back(3);  // cy
@@ -145,6 +818,23 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     if (problem.HasParameterBlock(state.extrinsics.data())) {
       problem.SetParameterBlockConstant(state.extrinsics.data());
     }
+  } else if (config.fix_stereo_extrinsics &&
+             problem.HasParameterBlock(state.extrinsics.data())) {
+    problem.SetParameterBlockConstant(state.extrinsics.data());
+  } else if ((config.fix_stereo_rotation || config.fix_stereo_yz_translation) &&
+             problem.HasParameterBlock(state.extrinsics.data())) {
+    std::vector<int> fixed_extrinsic_indices;
+    if (config.fix_stereo_rotation) {
+      fixed_extrinsic_indices.push_back(0);
+      fixed_extrinsic_indices.push_back(1);
+      fixed_extrinsic_indices.push_back(2);
+    }
+    if (config.fix_stereo_yz_translation) {
+      fixed_extrinsic_indices.push_back(4);
+      fixed_extrinsic_indices.push_back(5);
+    }
+    problem.SetManifold(state.extrinsics.data(),
+                        new ceres::SubsetManifold(6, fixed_extrinsic_indices));
   }
 
   if (config.fix_track_points) {
@@ -153,6 +843,16 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
         problem.SetParameterBlockConstant(tracks[ti].point3d.data());
       }
     }
+  }
+
+  if (config.stereo_tx_delta_bound > 0.0 &&
+      problem.HasParameterBlock(state.extrinsics.data()) &&
+      state.init_extrinsics.size() > 3) {
+    const double tx_bound = std::abs(config.stereo_tx_delta_bound);
+    problem.SetParameterLowerBound(
+        state.extrinsics.data(), 3, state.init_extrinsics[3] - tx_bound);
+    problem.SetParameterUpperBound(
+        state.extrinsics.data(), 3, state.init_extrinsics[3] + tx_bound);
   }
 
   // Set intrinsics manifold and bounds.
@@ -204,9 +904,13 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
     if (frame_to_optimize >= 0) {
       should_fix = (static_cast<int>(fi) != frame_to_optimize);
     } else {
-      should_fix = (static_cast<int>(fi) == state.fixed_frame_idx ||
-                    fi >= active_frames.size() ||
-                    !active_frames[fi]);
+      should_fix = config.fix_frame_poses ||
+                   static_cast<int>(fi) == state.fixed_frame_idx ||
+                   std::find(state.fixed_frame_indices.begin(),
+                             state.fixed_frame_indices.end(),
+                             static_cast<int>(fi)) != state.fixed_frame_indices.end() ||
+                   fi >= active_frames.size() ||
+                   !active_frames[fi];
     }
 
     if (should_fix) {
@@ -214,6 +918,13 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
         problem.SetParameterBlockConstant(frames[fi].rvec.data());
       }
       if (has_tvec) {
+        problem.SetParameterBlockConstant(frames[fi].tvec.data());
+      }
+    } else {
+      if (config.fix_frame_rotations && has_rvec) {
+        problem.SetParameterBlockConstant(frames[fi].rvec.data());
+      }
+      if (config.fix_frame_translations && has_tvec) {
         problem.SetParameterBlockConstant(frames[fi].tvec.data());
       }
     }
@@ -231,14 +942,14 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
   // Solve
   ceres::Solve(options, &problem, &result.summary);
 
-  // Compute RMSE.
-  // Ceres cost = 1/2 * sum(residual^2)，所以这里乘 2 再除以 residual 维度数。
+  // Report the image-domain RMSE only. Once motion/shape priors are present,
+  // Ceres' total residual count is no longer a pure reprojection metric.
   if (result.summary.num_residuals <= 0) {
     result.init_rmse = 0.0;
     result.final_rmse = 0.0;
   } else {
-    result.init_rmse = std::sqrt(2.0 * result.summary.initial_cost / result.summary.num_residuals);
-    result.final_rmse = std::sqrt(2.0 * result.summary.final_cost / result.summary.num_residuals);
+    result.init_rmse = initial_reprojection_rmse;
+    result.final_rmse = ComputeReprojectionRmse(state, frames, tracks, active_frames);
   }
 
   result.success = true;

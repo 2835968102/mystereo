@@ -1,0 +1,154 @@
+# Leave-one-out validation: estimate the shared camera from 0048 + 0002 + 0060,
+# then validate the held-out 0113 sequence with that fixed shared camera.
+name: kitti_raw_city_loo_validate_0113
+
+build:
+  enabled: true
+  source_dir: stereo_calib
+  build_dir: build
+
+runner:
+  conda_env: stereo-calib-vis
+  python_executable: python
+  pipeline_script: run_pipeline.py
+
+shared_camera_init:
+  enabled: true
+  min_motion_m: 0.0
+  min_consensus_runs: 3
+  apply_to_all_after_consensus: false
+  rerun_all_after_consensus: true
+  source_labels:
+    - city_0048_sync
+    - city_0002_sync
+    - city_0060_sync
+  share_intrinsics: true
+  shared_fields:
+    - left_fx
+    - left_fy
+    - left_cx
+    - left_cy
+    - right_fx
+    - right_fy
+    - right_cx
+    - right_cy
+    - tx
+    - ty
+    - tz
+  allow_shared_focal: true
+  aggregation: median
+  aggregation_by_field:
+    tx: mean
+    ty: mean
+    tz: mean
+  lock_intrinsics_after_apply: true
+  allow_final_principal_point_refine_after_apply: false
+  disable_absolute_rotation_prior_after_apply: true
+  disable_frame_distance_prior_after_apply: true
+  disable_final_stereo_refine_after_apply: true
+  max_reproj_error: 0.45
+  require_final_stereo_refine: false
+
+defaults:
+  pipeline_args:
+    dataset_mode: kitti_raw_sequence
+    gt_param_file: stereo_calib/result/gt_params/kitti_raw_00_01_gt_camera.json
+    init_param_file: stereo_calib/data/kitti_raw_rectified_clean_init_params.txt
+    conf_thresh: 0.25
+    nms_dist: 20
+    nn_thresh: 1
+    skip_match: true
+    max_iter: 24
+    incremental_max_iter: 12
+    per_frame_max_iter: 3
+    global_opt_interval: 10
+    min_pair_inliers: 15
+    max_score: 0.5
+    min_track_len: 3
+    fix_distortion: true
+    normalize_initial_focal_to_mean: false
+    normalize_initial_stereo_translation_to_x_axis: true
+    fix_focal_length: false
+    fix_principal_point: false
+    initialize_frame_poses_from_external: true
+    baseline_prior: 0
+    tx_prior: 0
+    focal_prior: 0
+    focal_mean_prior: 0
+    aspect_ratio_prior: 100
+    stereo_intrinsics_consistency: 100
+    principal_point_mean_prior: 0
+    frame_distance_prior: 20
+    frame_position_prior: 0
+    frame_translation_vector_prior: 2
+    frame_translation_direction_prior: 0
+    frame_distance_prior_stride: 2
+    frame_distance_prior_max_stride: 8
+    frame_rotation_angle_prior: 0
+    frame_rotation_vector_prior: 2
+    frame_absolute_rotation_prior: 500
+    focal_lower_scale: 0.2
+    focal_upper_scale: 3.0
+    per_frame_max_rmse: 5.0
+    per_frame_max_rmse_growth: 3.0
+    outlier_threshold: 2.0
+    enable_per_frame_correction: true
+    enable_incremental_free_principal_point_refine: true
+    incremental_free_principal_point_max_iter: 8
+    min_active_frames_for_free_principal_point: 20
+    free_principal_point_every_n_global_ba: 2
+    free_principal_point_max_rmse_increase: 0.05
+    free_principal_point_min_rmse_decrease: 0.005
+    free_principal_point_max_delta: 20.0
+    free_principal_point_release_focal_length: false
+    free_principal_point_max_focal_delta: 0.0
+    final_free_principal_point_min_rmse_decrease: 0.001
+    final_free_principal_point_max_delta: 20.0
+    final_free_principal_point_release_focal_length: false
+    final_free_principal_point_max_focal_delta: 0.0
+    optimize_stereo_tx_in_final_global_ba: false
+    enable_final_stereo_extrinsics_refine: true
+    final_stereo_extrinsics_max_iter: 12
+    final_stereo_extrinsics_min_rmse_decrease: 0.0
+    final_stereo_extrinsics_max_translation_delta: 0.04
+    final_stereo_extrinsics_max_rotation_delta: 0.002
+    final_stereo_extrinsics_max_frame_distance_rms_increase: 0.0
+
+scenes:
+  - kitti_raw_city_loo_validate_0113
+
+runs:
+  - label: city_0048_sync
+    source_only: true
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0048_sync
+      result_prefix: kitti_city_2011_09_26_drive_0048_sync
+      match_json: stereo_calib/result/run_kitti_raw_city_residential_small_test/match_points/kitti_city_2011_09_26_drive_0048_sync_run_kitti_raw_city_residential_small_test_matches_raw.json
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0048_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0048_sync/image_01/data
+
+  - label: city_0002_sync
+    source_only: true
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0002_sync
+      result_prefix: kitti_city_2011_09_26_drive_0002_sync
+      match_json: stereo_calib/result/run_kitti_raw_city_residential_small_test/match_points/kitti_city_2011_09_26_drive_0002_sync_run_kitti_raw_city_residential_small_test_matches_raw.json
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0002_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0002_sync/image_01/data
+
+  - label: city_0060_sync
+    source_only: true
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0060_sync
+      result_prefix: kitti_city_2011_09_26_drive_0060_sync
+      match_json: stereo_calib/result/run_kitti_raw_city_residential_small_test/match_points/kitti_city_2011_09_26_drive_0060_sync_run_kitti_raw_city_residential_small_test_matches_raw.json
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0060_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0060_sync/image_01/data
+
+  - label: city_0113_sync
+    pipeline_args:
+      scene: kitti_city_2011_09_26_drive_0113_sync
+      result_prefix: kitti_city_2011_09_26_drive_0113_sync
+      match_json: stereo_calib/result/run_kitti_raw_city_residential_small_test/match_points/kitti_city_2011_09_26_drive_0113_sync_run_kitti_raw_city_residential_small_test_matches_raw.json
+      left_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0113_sync/image_00/data
+      right_img_dir: /media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0113_sync/image_01/data

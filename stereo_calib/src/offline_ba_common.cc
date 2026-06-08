@@ -45,6 +45,52 @@ json MeanOrNull(double sum, int count)
   return sum / static_cast<double>(count);
 }
 
+double MaxAbsIntrinsicDelta(const Intrinsics& a,
+                            const Intrinsics& b,
+                            bool include_principal_point)
+{
+  double max_delta = std::max(std::abs(a.fx - b.fx), std::abs(a.fy - b.fy));
+  if (include_principal_point) {
+    max_delta = std::max(max_delta, std::abs(a.cx - b.cx));
+    max_delta = std::max(max_delta, std::abs(a.cy - b.cy));
+  }
+  return max_delta;
+}
+
+double MaxAbsStereoIntrinsicDelta(const StereoCamera& a,
+                                  const StereoCamera& b,
+                                  bool include_principal_point)
+{
+  return std::max(
+      MaxAbsIntrinsicDelta(a.left, b.left, include_principal_point),
+      MaxAbsIntrinsicDelta(a.right, b.right, include_principal_point));
+}
+
+double FocalMean(const StereoCamera& camera)
+{
+  return 0.25 * (camera.left.fx + camera.left.fy +
+                 camera.right.fx + camera.right.fy);
+}
+
+double TranslationNorm(const StereoCamera& camera)
+{
+  if (camera.extrinsics.t.empty()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const double tx = camera.extrinsics.t.at<double>(0, 0);
+  const double ty = camera.extrinsics.t.at<double>(1, 0);
+  const double tz = camera.extrinsics.t.at<double>(2, 0);
+  return std::sqrt(tx * tx + ty * ty + tz * tz);
+}
+
+double Tx(const StereoCamera& camera)
+{
+  if (camera.extrinsics.t.empty()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return camera.extrinsics.t.at<double>(0, 0);
+}
+
 }  // namespace
 
 bool LoadJsonFile(const std::string& path, json& parsed)
@@ -132,22 +178,51 @@ bool LoadGroundTruth(const std::string& gt_param_file,
     return true;
   }
 
-  if (input_json.contains("left") &&
-      input_json.contains("right") &&
-      input_json.contains("extrinsics")) {
-    try {
-      gt.camera.left = IntrinsicsFromJson(input_json.at("left"));
-      gt.camera.right = IntrinsicsFromJson(input_json.at("right"));
-      gt.camera.extrinsics = ExtrinsicsFromJson(input_json.at("extrinsics"));
-    } catch (...) {
-      err = "Failed to parse ground truth camera fields from input json.";
-      return false;
-    }
-    gt.has_gt = true;
-    gt.source = "input_json(left/right/extrinsics)";
+  return true;
+}
+
+bool RejectGtLikeInitialization(const StereoCamera& init_camera,
+                                const GroundTruthContext& gt,
+                                bool normalize_initial_focal_to_mean,
+                                bool fix_focal_length,
+                                const std::string& init_source,
+                                std::string& err)
+{
+  if (!gt.has_gt) {
+    return true;
   }
 
-  return true;
+  std::vector<std::string> reasons;
+  const double kFocalEps = 1e-3;
+  const double kTranslationEps = 1e-6;
+
+  if (normalize_initial_focal_to_mean &&
+      std::abs(FocalMean(init_camera) - FocalMean(gt.camera)) < kFocalEps) {
+    reasons.push_back(
+        "normalize_initial_focal_to_mean would set fx/fy to the GT focal mean");
+  }
+  if (fix_focal_length &&
+      MaxAbsStereoIntrinsicDelta(init_camera, gt.camera, false) < kFocalEps) {
+    reasons.push_back("fix_focal_length would lock GT-like focal values");
+  }
+  if (MaxAbsStereoIntrinsicDelta(init_camera, gt.camera, true) < kFocalEps &&
+      std::abs(TranslationNorm(init_camera) - TranslationNorm(gt.camera)) < kTranslationEps &&
+      std::abs(Tx(init_camera) - Tx(gt.camera)) < kTranslationEps) {
+    reasons.push_back("the init camera is numerically identical to the GT camera");
+  }
+
+  if (reasons.empty()) {
+    return true;
+  }
+
+  err = "Refusing to run BA because the initial camera appears to leak evaluation GT:\n"
+        "  init source: " + init_source + "\n"
+        "  gt source: " + gt.source;
+  for (std::size_t i = 0; i < reasons.size(); ++i) {
+    err += "\n  - " + reasons[i];
+  }
+  err += "\nUse a GT-free init file or disable the GT-like focal normalization/fix.";
+  return false;
 }
 
 json BuildSummaryFromHistory(const json& history)

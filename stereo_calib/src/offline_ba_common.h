@@ -41,6 +41,13 @@ bool LoadGroundTruth(const std::string& gt_param_file,
                      GroundTruthContext& gt,
                      std::string& err);
 
+bool RejectGtLikeInitialization(const StereoCamera& init_camera,
+                                const GroundTruthContext& gt,
+                                bool normalize_initial_focal_to_mean,
+                                bool fix_focal_length,
+                                const std::string& init_source,
+                                std::string& err);
+
 nlohmann::json BuildSummaryFromHistory(const nlohmann::json& history);
 
 nlohmann::json BuildResultJson(const OptimizationResult& result,
@@ -53,4 +60,3 @@ void AppendGroundTruthDiff(nlohmann::json& out,
 }  // namespace stereocalib
 
 #endif  // STEREO_CALIB_SRC_OFFLINE_BA_COMMON_H
-

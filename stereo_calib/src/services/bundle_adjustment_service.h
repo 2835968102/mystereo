@@ -16,13 +16,33 @@ struct BAConfig {
   int max_iterations = 200;
   double huber_delta = 1.0;
   bool fix_distortion = true;
+  bool fix_focal_length = false;
   bool fix_principal_point = true;
+  bool fix_stereo_extrinsics = false;
+  bool fix_stereo_rotation = false;
+  bool fix_stereo_yz_translation = false;
+  double stereo_tx_delta_bound = 0.0;
   bool fix_camera_params = false;
   bool fix_track_points = false;
+  bool fix_frame_poses = false;
+  bool fix_frame_rotations = false;
+  bool fix_frame_translations = false;
   double aspect_ratio_prior_weight = 100.0;
   double baseline_prior_weight = 10.0;
   double tx_prior_weight = 0.0;
   double focal_prior_weight = 0.0;
+  double focal_mean_prior_weight = 0.0;
+  double stereo_intrinsics_consistency_weight = 0.0;
+  double principal_point_mean_prior_weight = 0.0;
+  double frame_distance_prior_weight = 0.0;
+  double frame_position_prior_weight = 0.0;
+  double frame_translation_vector_prior_weight = 0.0;
+  double frame_translation_direction_prior_weight = 0.0;
+  int frame_distance_prior_stride = 1;
+  int frame_distance_prior_max_stride = 1;
+  double frame_rotation_angle_prior_weight = 0.0;
+  double frame_rotation_vector_prior_weight = 0.0;
+  double frame_absolute_rotation_prior_weight = 0.0;
   double focal_lower_scale = 0.5;
   double focal_upper_scale = 1.5;
 };
@@ -46,6 +66,7 @@ struct BAState {
   
   // Fixed frame index (not optimized)
   int fixed_frame_idx = 0;
+  std::vector<int> fixed_frame_indices;
 };
 
 // ─── BA Result ──────────────────────────────────────────────────────────────

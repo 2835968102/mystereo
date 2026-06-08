@@ -113,6 +113,22 @@ def parse_args():
                     help="匹配点最大得分阈值（过滤低质量匹配，越小越严格）")
     ba.add_argument("--fix_distortion",       action="store_true",
                     help="固定畸变参数不优化")
+    ba.add_argument("--fix_focal_length",     action="store_true",
+                    help="固定 fx/fy，不让焦距参与 BA 补偿")
+    ba.add_argument("--fix_principal_point",  action="store_true",
+                    help="固定 cx/cy，不让主点参与 BA 补偿")
+    ba.add_argument("--normalize_initial_focal_to_mean", action="store_true",
+                    help="BA 前把左右 fx/fy 初值归一到四者均值")
+    ba.add_argument("--normalize_initial_stereo_translation_to_x_axis", action="store_true",
+                    help="BA 前把 rectified stereo 初值中的 ty/tz 归零")
+    ba.add_argument("--initialize_frame_poses_from_external", action="store_true",
+                    help="使用 frame_poses_file/OXTS 作为帧位姿初值，不使用相机 GT 内参")
+    ba.add_argument("--fix_external_frame_poses", action="store_true",
+                    help="使用外部帧位姿初始化时，在全局 BA 中固定帧位姿")
+    ba.add_argument("--fix_external_frame_rotations", action="store_true",
+                    help="使用外部帧位姿初始化时固定每帧旋转，平移仍可优化")
+    ba.add_argument("--fix_external_frame_translations", action="store_true",
+                    help="使用外部帧位姿初始化时固定每帧平移，旋转仍可优化")
     ba.add_argument("--per_frame_max_iter",   type=int,   default=5,
                     help="KITTI 逐帧本地校正最大迭代次数")
     ba.add_argument("--baseline_prior",       type=float, default=None,
@@ -121,10 +137,40 @@ def parse_args():
                     help="x 方向平移先验权重（KITTI 专用）")
     ba.add_argument("--focal_prior",          type=float, default=None,
                     help="焦距先验权重（KITTI 专用）")
+    ba.add_argument("--focal_mean_prior",     type=float, default=None,
+                    help="焦距靠近左右 fx/fy 初值平均值的软约束权重")
+    ba.add_argument("--aspect_ratio_prior",   type=float, default=None,
+                    help="fx/fy 接近的软约束权重")
+    ba.add_argument("--stereo_intrinsics_consistency", type=float, default=None,
+                    help="左右相机 fx/fy/cx/cy 一致性软约束权重")
+    ba.add_argument("--principal_point_mean_prior", type=float, default=None,
+                    help="主点靠近左右初值平均中心的软约束权重")
+    ba.add_argument("--frame_distance_prior", type=float, default=None,
+                    help="帧间相机中心距离先验权重；KITTI RAW 可由 OXTS 自动生成")
+    ba.add_argument("--frame_position_prior", type=float, default=None,
+                    help="对齐到当前 BA 轨迹后的 OXTS 帧位置先验权重")
+    ba.add_argument("--frame_translation_vector_prior", type=float, default=None,
+                    help="OXTS 相对平移向量先验权重；约束帧间运动方向和尺度")
+    ba.add_argument("--frame_translation_direction_prior", type=float, default=None,
+                    help="OXTS 相对平移方向先验权重；只约束运动方向不约束尺度")
+    ba.add_argument("--frame_distance_prior_stride", type=int, default=None,
+                    help="帧间距离先验使用的 frame stride")
+    ba.add_argument("--frame_distance_prior_max_stride", type=int, default=None,
+                    help="帧间距离先验使用的最大 frame stride；会包含 stride 到 max_stride")
+    ba.add_argument("--frame_rotation_angle_prior", type=float, default=None,
+                    help="帧间相对旋转角先验权重；KITTI RAW 可由 OXTS 自动生成")
+    ba.add_argument("--frame_rotation_vector_prior", type=float, default=None,
+                    help="帧间相对旋转向量先验权重；KITTI RAW 可由 OXTS 自动生成")
+    ba.add_argument("--frame_absolute_rotation_prior", type=float, default=None,
+                    help="对齐到固定帧后的 OXTS 绝对帧旋转软约束权重")
     ba.add_argument("--focal_lower_scale",    type=float, default=None,
                     help="焦距下界缩放因子（KITTI 专用）")
     ba.add_argument("--focal_upper_scale",    type=float, default=None,
                     help="焦距上界缩放因子（KITTI 专用）")
+    ba.add_argument("--per_frame_max_rmse", type=float, default=None,
+                    help="接受逐帧本地校正允许的最大 RMSE")
+    ba.add_argument("--per_frame_max_rmse_growth", type=float, default=None,
+                    help="接受逐帧本地校正允许的最大 RMSE 相对初始增长倍数")
     ba.add_argument("--outlier_threshold",    type=float, default=None,
                     help="外点剔除阈值（像素）")
     ba.add_argument("--outlier_rounds",       type=int,   default=None,
@@ -143,6 +189,37 @@ def parse_args():
                     help="每多少次 interval global BA 触发一次释放主点 refine")
     ba.add_argument("--free_principal_point_max_rmse_increase", type=float, default=None,
                     help="释放主点 refine 允许的最大 RMSE 增量，超过则回退")
+    ba.add_argument("--free_principal_point_min_rmse_decrease", type=float, default=None,
+                    help="接受释放主点 refine 需要达到的最小 RMSE 下降")
+    ba.add_argument("--free_principal_point_max_delta", type=float, default=None,
+                    help="接受释放主点 refine 允许的最大主点到左右初值均值距离（像素）")
+    ba.add_argument("--free_principal_point_release_focal_length", action="store_true",
+                    help="增量释放主点 refine 时同时允许焦距变化")
+    ba.add_argument("--free_principal_point_max_focal_delta", type=float, default=None,
+                    help="增量释放主点 refine 允许的最大焦距变化（像素）")
+    ba.add_argument("--final_free_principal_point_min_rmse_decrease", type=float, default=None,
+                    help="最终释放主点 BA 需要达到的最小 RMSE 下降")
+    ba.add_argument("--final_free_principal_point_max_delta", type=float, default=None,
+                    help="最终释放主点 BA 允许的最大主点到左右初值均值距离（像素）")
+    ba.add_argument("--final_free_principal_point_release_focal_length", action="store_true",
+                    help="最终释放主点 BA 时同时允许焦距变化")
+    ba.add_argument("--final_free_principal_point_max_focal_delta", type=float, default=None,
+                    help="最终释放主点 BA 允许的最大焦距变化（像素）")
+    ba.add_argument("--optimize_stereo_tx_in_final_global_ba", action="store_true",
+                    help="最终全局 BA 固定主点时允许 stereo tx 与焦距联合优化")
+    ba.add_argument("--enable_final_stereo_extrinsics_refine", action="store_true",
+                    help="最终阶段在锁定焦距/主点后尝试释放双目外参，并按 gate 决定是否接受")
+    ba.add_argument("--final_stereo_extrinsics_max_iter", type=int, default=None,
+                    help="最终双目外参 refine 最大迭代次数")
+    ba.add_argument("--final_stereo_extrinsics_min_rmse_decrease", type=float, default=None,
+                    help="接受最终双目外参 refine 需要达到的最小 RMSE 下降")
+    ba.add_argument("--final_stereo_extrinsics_max_translation_delta", type=float, default=None,
+                    help="接受最终双目外参 refine 允许的最大平移变化（米）")
+    ba.add_argument("--final_stereo_extrinsics_max_rotation_delta", type=float, default=None,
+                    help="接受最终双目外参 refine 允许的最大旋转向量变化（弧度）")
+    ba.add_argument("--final_stereo_extrinsics_max_frame_distance_rms_increase",
+                    type=float, default=None,
+                    help="接受最终双目外参 refine 允许的外部帧间距离 RMS 增量（米）；负数关闭")
     ba.add_argument("--reset_camera_params_each_ba_round", action="store_true",
                     help="每轮 BA 前重置相机参数到初始值（KITTI 专用 BA 支持）")
 

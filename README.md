@@ -106,12 +106,63 @@ python3 run_experiment.py configs/experiments/panoramic_threshold_sweep.yaml \
 # KITTI RAW City sync drive 批量实验
 python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml
 
+# KITTI RAW City 小样本 leave-one-out 共享标定验证
+./run_kitti_raw_city_residential_small_test_loo.sh
+
 # root PATH 找不到 conda 时，可覆盖环境名或在 YAML 中设置 conda_executable
 python3 run_experiment.py configs/experiments/kitti_raw_city_0001.yaml \
   --conda-env stereo-calib-vis
 ```
 
 YAML 参数会转换为 `run_pipeline.py` 的命令行参数。布尔值 `true` 会转换成开关，例如 `fix_distortion: true` 会变成 `--fix_distortion`。
+
+### KITTI RAW City Leave-One-Out 共享标定验证
+
+`./run_kitti_raw_city_residential_small_test_loo.sh` 用于检查共享相机标定是否真的能泛化到未参与估计的序列。它会依次运行 4 个 fold：
+
+| Fold | 共享参数来源 | 验证序列 |
+|------|--------------|----------|
+| `validate_0060` | `0048 + 0113 + 0002` | `0060` |
+| `validate_0002` | `0048 + 0113 + 0060` | `0002` |
+| `validate_0113` | `0048 + 0002 + 0060` | `0113` |
+| `validate_0048` | `0113 + 0002 + 0060` | `0048` |
+
+每个 fold 的 source drive 标记为 `source_only: true`，只用于从无 GT 的 BA 结果中收集相机参数；held-out drive 不在 `shared_camera_init.source_labels` 中，因此不会参与共享参数聚合。随后 runner 只对 held-out drive 追加一个 `_refined` 验证 run，并强制使用 source drives 聚合得到的共享相机初始化。
+
+这个流程故意设置：
+
+| 设置 | 目的 |
+|------|------|
+| `min_consensus_runs: 3` | 每个 fold 必须收满 3 个 source drives 才验证 |
+| `apply_to_all_after_consensus: false` | source drives 第一轮保持 clean init，避免 source 之间互相初始化 |
+| `lock_intrinsics_after_apply: true` | held-out `_refined` 阶段固定共享焦距和主点 |
+| `allow_final_principal_point_refine_after_apply: false` | held-out 验证不再释放主点，避免验证阶段用主点补偿 |
+| `gt_param_file` 仅用于 Python 后评估 | C++ BA 命令不接收 GT 参数，避免真值污染优化 |
+
+输出默认写入 `stereo_calib/result/run_kitti_raw_city_residential_small_test_loo/`，日志使用同一个脚本级 `RUN_ID`，每个 fold 的结果文件名追加 `validate_0060`、`validate_0002` 等后缀。
+
+本流程的共享字段为左右目 `fx/fy/cx/cy` 和 stereo `tx/ty/tz`。内参按 median 聚合，`tx/ty/tz` 按 mean 聚合；`min_motion_m: 0.0` 是为了按 leave-one-out 设计允许弱运动的 `0060` 也作为 source 出现在某些 fold 中。
+
+最近一次无 GT 污染审计 run：
+
+| 项目 | 结果 |
+|------|------|
+| `RUN_ID` | `loo_nogt_20260602_111432_804300084` |
+| C++ BA 命令数 | `20` |
+| C++ `--gt_param_file` 次数 | `0` |
+| clean init 次数 | `16` |
+| shared init 次数 | `4` |
+| refined init `source_ba_runs` | 4 个 fold 全部为 `3` |
+
+本次 held-out `_refined` 验证结果：
+
+| Fold | 验证序列 | RMSE px | 平均焦距误差 px | 最大焦距误差 px | 平均主点误差 px | 最大主点误差 px | baseline 误差 mm |
+|------|----------|---------|-----------------|-----------------|-----------------|-----------------|------------------|
+| `validate_0060` | `0060` | `0.2889` | `1.3449` | `1.3453` | `2.0162` | `3.9615` | `3.8412` |
+| `validate_0002` | `0002` | `0.3479` | `9.4911` | `9.4920` | `2.0162` | `3.9615` | `3.9347` |
+| `validate_0113` | `0113` | `0.3851` | `1.3449` | `1.3453` | `4.4906` | `6.2397` | `6.8961` |
+| `validate_0048` | `0048` | `0.3640` | `9.4911` | `9.4920` | `4.4905` | `6.2396` | `4.0021` |
+| 平均 | - | `0.3464` | `5.4180` | `5.4186` | `3.2534` | `5.1006` | `4.6685` |
 
 ## 单次运行
 
