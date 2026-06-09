@@ -1,0 +1,42 @@
+{
+  "left": {
+    "fx": null,
+    "fy": null,
+    "cx": null,
+    "cy": null,
+    "k1": null,
+    "k2": null,
+    "p1": null,
+    "p2": null,
+    "k3": null
+  },
+  "right": {
+    "fx": null,
+    "fy": null,
+    "cx": null,
+    "cy": null,
+    "k1": null,
+    "k2": null,
+    "p1": null,
+    "p2": null,
+    "k3": null
+  },
+  "extrinsics": {
+    "R": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    "t": [
+      null,
+      null,
+      null
+    ]
+  }
+}
