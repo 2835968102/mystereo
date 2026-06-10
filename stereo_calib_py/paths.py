@@ -9,10 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import sys
 
 from .config import PipelineConfig
 from .kitti import build_kitti_gt_camera_json
-from .project import PROJECT_ROOT
+from .project import PROJECT_ROOT, RUNTIME_ROOT
 
 
 def format_tag_value(value: object) -> str:
@@ -114,14 +115,26 @@ def _match_output_prefix(result_prefix: str, config: PipelineConfig) -> str:
 def _result_dir(config: PipelineConfig) -> Path:
     if config.result_dir:
         path = Path(config.result_dir)
-        return path if path.is_absolute() else PROJECT_ROOT / path
-    return PROJECT_ROOT / "stereo_calib/result"
+        return path if path.is_absolute() else RUNTIME_ROOT / path
+    return RUNTIME_ROOT / "stereo_calib/result"
+
+
+def _tool_executable(name: str) -> Path:
+    path = PROJECT_ROOT / "build/bin" / name
+    if sys.platform == "win32":
+        return path.with_suffix(".exe")
+    exe_path = path.with_suffix(".exe")
+    if exe_path.exists():
+        return exe_path
+    return path
 
 
 def _project_tools(matcher_kind: str, is_kitti_mode: bool) -> tuple[Path, Path, Path, Path]:
     # 工具路径仍沿用项目旧布局，集中在这里便于后续改成可配置路径。
-    weights = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth"
-    ba_bin = PROJECT_ROOT / "build/bin" / (
+    weights = PROJECT_ROOT / "stereo_calib/scripts/superpoint_v1.pth"
+    if not weights.exists():
+        weights = PROJECT_ROOT / "matchmodel/SuperPointPretrainedNetwork/superpoint_v1.pth"
+    ba_bin = _tool_executable(
         "run_offline_stereo_ba_kitti" if is_kitti_mode else "run_offline_stereo_ba"
     )
     match_script = PROJECT_ROOT / "stereo_calib/scripts" / (
@@ -157,6 +170,15 @@ def _kitti_gt_paths(config: PipelineConfig, img_dir: Path, result_dir: Path, res
         kitti_calib_dir=_kitti_calib_dir(img_dir),
         kitti_result_prefix=result_prefix,
     )
+
+
+def _kitti_sequence_gt_paths(config: PipelineConfig, img_dir: Path, result_dir: Path, result_prefix: str) -> GroundTruthPaths:
+    explicit = _explicit_gt_file(config)
+    if explicit is not None:
+        return GroundTruthPaths(file=explicit, explicit=True)
+    if config.kitti_root_dir:
+        return _kitti_gt_paths(config, img_dir, result_dir, result_prefix)
+    return GroundTruthPaths()
 
 
 def _latest_existing_path(candidates: tuple[Path, ...]) -> Path | None:
@@ -369,7 +391,7 @@ def _resolve_kitti_raw_sequence_paths(config: PipelineConfig) -> PipelinePaths:
         matcher_kind="raw_stereo_sequence",
         cache_input_paths=cache_inputs,
         new_output_paths=new_outputs,
-        ground_truth_paths=_kitti_gt_paths(config, img_dir, result_dir, result_prefix),
+        ground_truth_paths=_kitti_sequence_gt_paths(config, img_dir, result_dir, result_prefix),
     )
 
 

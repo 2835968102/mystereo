@@ -228,6 +228,60 @@ BA result JSON 的主要字段：
 | `summary` | 从历史记录聚合出的平均误差摘要 |
 | `diff_vs_gt` | 有 GT 时输出的最终参数差异 |
 
+## Linux CPU 单文件发布
+
+发布版入口是 `run_calibrate_once.py`，固定使用 CPU，执行一次完整流程：
+
+1. 左右目序列 SuperPoint 匹配。
+2. C++ KITTI RAW sequence BA。
+3. 将最终 BA result JSON 复制为用户指定的 `--output_json`。
+
+构建前建议使用 CPU 版 PyTorch 环境，并安装 PyInstaller：
+
+```bash
+python3 -m pip install pyinstaller
+```
+
+先编译 Linux Release C++ 目标：
+
+```bash
+cmake -S stereo_calib -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)"
+```
+
+确认存在：
+
+```text
+build/bin/run_offline_stereo_ba
+build/bin/run_offline_stereo_ba_kitti
+build/bin/run_stereo_calib
+stereo_calib/scripts/superpoint_v1.pth
+```
+
+然后打包：
+
+```bash
+packaging/build_linux_onefile.sh
+```
+
+产物位于：
+
+```text
+dist/mycalib
+```
+
+运行一次标定并只输出最终 JSON：
+
+```bash
+./dist/mycalib \
+  --left_img_dir /data/seq01/left \
+  --right_img_dir /data/seq01/right \
+  --init_param_file /data/seq01/init_camera.txt \
+  --output_json /data/seq01/calibration_result.json
+```
+
+可选传入 `--work_dir` 保留中间 matches 和 BA 文件；未传时中间文件使用临时目录。`--gt_param_file` 和 `--frame_poses_file` 仍可按需传入。
+
 ## 检查
 
 改动入口、配置或 C++ 后，可以先跑轻量检查：
