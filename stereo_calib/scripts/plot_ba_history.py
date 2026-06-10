@@ -78,10 +78,41 @@ def extract_series(history):
     trans_err_x   = []
     trans_err_y   = []
     trans_err_z   = []
+    left_fx       = []
+    left_fy       = []
+    left_cx       = []
+    left_cy       = []
+    right_fx      = []
+    right_fy      = []
+    right_cx      = []
+    right_cy      = []
+    baseline      = []
+    trans_x       = []
+    trans_y       = []
+    trans_z       = []
 
     for item in history:
         stages.append(item["stage"])
         reproj.append(item.get("reproj_error", float("nan")))
+
+        camera = item.get("camera", {})
+        cam_ext = camera.get("extrinsics", {})
+        cam_left = camera.get("left", {})
+        cam_right = camera.get("right", {})
+        cam_t = cam_ext.get("t", [float("nan")] * 3)
+
+        left_fx.append(cam_left.get("fx", float("nan")))
+        left_fy.append(cam_left.get("fy", float("nan")))
+        left_cx.append(cam_left.get("cx", float("nan")))
+        left_cy.append(cam_left.get("cy", float("nan")))
+        right_fx.append(cam_right.get("fx", float("nan")))
+        right_fy.append(cam_right.get("fy", float("nan")))
+        right_cx.append(cam_right.get("cx", float("nan")))
+        right_cy.append(cam_right.get("cy", float("nan")))
+        baseline.append(abs(cam_t[0]) if len(cam_t) > 0 else float("nan"))
+        trans_x.append(cam_t[0] if len(cam_t) > 0 else float("nan"))
+        trans_y.append(cam_t[1] if len(cam_t) > 1 else float("nan"))
+        trans_z.append(cam_t[2] if len(cam_t) > 2 else float("nan"))
 
         dvg = item.get("diff_vs_gt", {})
         ext = dvg.get("extrinsics", {})
@@ -117,6 +148,10 @@ def extract_series(history):
         right_cx_err=right_cx_err, right_cy_err=right_cy_err,
         baseline_err=baseline_err,
         trans_err_x=trans_err_x, trans_err_y=trans_err_y, trans_err_z=trans_err_z,
+        left_fx=left_fx, left_fy=left_fy, left_cx=left_cx, left_cy=left_cy,
+        right_fx=right_fx, right_fy=right_fy, right_cx=right_cx, right_cy=right_cy,
+        baseline=baseline,
+        trans_x=trans_x, trans_y=trans_y, trans_z=trans_z,
     )
 
 
@@ -142,6 +177,28 @@ def format_mean(label: str, value, unit: str) -> str:
         return f"{label}: N/A"
     suffix = f" {unit}" if unit else ""
     return f"{label}: {value:.6f}{suffix}"
+
+
+def has_gt_error_series(series: dict) -> bool:
+    keys = [
+        "rot_err_deg",
+        "left_fx_err",
+        "left_fy_err",
+        "left_cx_err",
+        "left_cy_err",
+        "right_fx_err",
+        "right_fy_err",
+        "right_cx_err",
+        "right_cy_err",
+        "baseline_err",
+        "trans_err_x",
+        "trans_err_y",
+        "trans_err_z",
+    ]
+    for key in keys:
+        if any(isinstance(v, (int, float)) and math.isfinite(v) for v in series[key]):
+            return True
+    return False
 
 
 def build_summary(data: dict, series: dict) -> dict:
@@ -260,9 +317,11 @@ def plot_all(series, data, output_path, global_only=True):
 
     num_frames = data.get("num_frames", "?")
     num_tracks = data.get("num_tracks", "?")
+    has_gt = has_gt_error_series(series)
+    plot_mode = "GT error" if has_gt else "camera parameters"
     subtitle = "Global BA stages only" if global_only else "All optimization stages"
     fig.suptitle(
-        f"BA Optimization History — {subtitle}\n"
+        f"BA Optimization History — {subtitle}, {plot_mode}\n"
         f"({num_frames} frames, {num_tracks} tracks, {n} stages shown)",
         fontsize=14, fontweight="bold", y=0.995,
     )
@@ -276,48 +335,96 @@ def plot_all(series, data, output_path, global_only=True):
     )
 
     # ── 子图定义：(ax, values, ylabel, unit, extra_lines, mean_lines) ─────────
-    panels = [
-        (axes[0, 0], series["reproj"], "Reprojection Error", "px", None,
-         [format_mean("mean", summary["avg_reproj_error_px"], "px")]),
-        (axes[0, 1], series["rot_err_deg"], "Rotation Error", "deg", None,
-         [format_mean("mean", summary["avg_rotation_error_deg"], "deg")]),
-        (axes[1, 0], series["left_fx_err"], "Left  |Δfx|", "px", None,
-         [format_mean("mean", summary["avg_left_fx_error_px"], "px")]),
-        (axes[1, 1], series["left_fy_err"], "Left  |Δfy|", "px", None,
-         [format_mean("mean", summary["avg_left_fy_error_px"], "px")]),
-        (axes[2, 0], series["right_fx_err"], "Right |Δfx|", "px", None,
-         [format_mean("mean", summary["avg_right_fx_error_px"], "px")]),
-        (axes[2, 1], series["right_fy_err"], "Right |Δfy|", "px", None,
-         [format_mean("mean", summary["avg_right_fy_error_px"], "px")]),
-        (axes[3, 0], series["left_cx_err"], "Left Principal Point", "px",
-         [
-             (series["left_cy_err"], "|Δcy|", "#2ca02c"),
-         ],
-         [
-             format_mean("|Δcx| mean", summary["avg_left_cx_error_px"], "px"),
-             format_mean("|Δcy| mean", summary["avg_left_cy_error_px"], "px"),
-         ]),
-        (axes[3, 1], series["right_cx_err"], "Right Principal Point", "px",
-         [
-             (series["right_cy_err"], "|Δcy|", "#2ca02c"),
-         ],
-         [
-             format_mean("|Δcx| mean", summary["avg_right_cx_error_px"], "px"),
-             format_mean("|Δcy| mean", summary["avg_right_cy_error_px"], "px"),
-         ]),
-        (axes[4, 0], series["baseline_err"], "Baseline |Δt_x|", "m", None,
-         [format_mean("mean", summary["avg_baseline_error_m"], "m")]),
-        (axes[4, 1], series["trans_err_x"], "Translation Error", "m",
-         [
-             (series["trans_err_y"], "|Δty|", "#2ca02c"),
-             (series["trans_err_z"], "|Δtz|", "#ff7f0e"),
-         ],
-         [
-             format_mean("|Δtx| mean", summary["avg_trans_err_x_m"], "m"),
-             format_mean("|Δty| mean", summary["avg_trans_err_y_m"], "m"),
-             format_mean("|Δtz| mean", summary["avg_trans_err_z_m"], "m"),
-         ]),
-    ]
+    if has_gt:
+        panels = [
+            (axes[0, 0], series["reproj"], "Reprojection Error", "px", None,
+             [format_mean("mean", summary["avg_reproj_error_px"], "px")]),
+            (axes[0, 1], series["rot_err_deg"], "Rotation Error", "deg", None,
+             [format_mean("mean", summary["avg_rotation_error_deg"], "deg")]),
+            (axes[1, 0], series["left_fx_err"], "Left  |Δfx|", "px", None,
+             [format_mean("mean", summary["avg_left_fx_error_px"], "px")]),
+            (axes[1, 1], series["left_fy_err"], "Left  |Δfy|", "px", None,
+             [format_mean("mean", summary["avg_left_fy_error_px"], "px")]),
+            (axes[2, 0], series["right_fx_err"], "Right |Δfx|", "px", None,
+             [format_mean("mean", summary["avg_right_fx_error_px"], "px")]),
+            (axes[2, 1], series["right_fy_err"], "Right |Δfy|", "px", None,
+             [format_mean("mean", summary["avg_right_fy_error_px"], "px")]),
+            (axes[3, 0], series["left_cx_err"], "Left Principal Point Error", "px",
+             [(series["left_cy_err"], "|Δcy|", "#2ca02c")],
+             [
+                 format_mean("|Δcx| mean", summary["avg_left_cx_error_px"], "px"),
+                 format_mean("|Δcy| mean", summary["avg_left_cy_error_px"], "px"),
+             ]),
+            (axes[3, 1], series["right_cx_err"], "Right Principal Point Error", "px",
+             [(series["right_cy_err"], "|Δcy|", "#2ca02c")],
+             [
+                 format_mean("|Δcx| mean", summary["avg_right_cx_error_px"], "px"),
+                 format_mean("|Δcy| mean", summary["avg_right_cy_error_px"], "px"),
+             ]),
+            (axes[4, 0], series["baseline_err"], "Baseline |Δt_x|", "m", None,
+             [format_mean("mean", summary["avg_baseline_error_m"], "m")]),
+            (axes[4, 1], series["trans_err_x"], "Translation Error", "m",
+             [
+                 (series["trans_err_y"], "|Δty|", "#2ca02c"),
+                 (series["trans_err_z"], "|Δtz|", "#ff7f0e"),
+             ],
+             [
+                 format_mean("|Δtx| mean", summary["avg_trans_err_x_m"], "m"),
+                 format_mean("|Δty| mean", summary["avg_trans_err_y_m"], "m"),
+                 format_mean("|Δtz| mean", summary["avg_trans_err_z_m"], "m"),
+             ]),
+        ]
+    else:
+        panels = [
+            (axes[0, 0], series["reproj"], "Reprojection Error", "px", None,
+             [format_mean("mean", finite_mean(series["reproj"]), "px")]),
+            (axes[0, 1], series["baseline"], "Baseline |t_x|", "m", None,
+             [format_mean("mean", finite_mean(series["baseline"]), "m")]),
+            (axes[1, 0], series["left_fx"], "Left Focal Length", "px",
+             [(series["left_fy"], "fy", "#2ca02c")],
+             [
+                 format_mean("fx mean", finite_mean(series["left_fx"]), "px"),
+                 format_mean("fy mean", finite_mean(series["left_fy"]), "px"),
+             ]),
+            (axes[1, 1], series["right_fx"], "Right Focal Length", "px",
+             [(series["right_fy"], "fy", "#2ca02c")],
+             [
+                 format_mean("fx mean", finite_mean(series["right_fx"]), "px"),
+                 format_mean("fy mean", finite_mean(series["right_fy"]), "px"),
+             ]),
+            (axes[2, 0], series["left_cx"], "Left Principal Point", "px",
+             [(series["left_cy"], "cy", "#2ca02c")],
+             [
+                 format_mean("cx mean", finite_mean(series["left_cx"]), "px"),
+                 format_mean("cy mean", finite_mean(series["left_cy"]), "px"),
+             ]),
+            (axes[2, 1], series["right_cx"], "Right Principal Point", "px",
+             [(series["right_cy"], "cy", "#2ca02c")],
+             [
+                 format_mean("cx mean", finite_mean(series["right_cx"]), "px"),
+                 format_mean("cy mean", finite_mean(series["right_cy"]), "px"),
+             ]),
+            (axes[3, 0], series["trans_x"], "Translation t_x", "m", None,
+             [format_mean("mean", finite_mean(series["trans_x"]), "m")]),
+            (axes[3, 1], series["trans_y"], "Translation t_y / t_z", "m",
+             [(series["trans_z"], "t_z", "#2ca02c")],
+             [
+                 format_mean("t_y mean", finite_mean(series["trans_y"]), "m"),
+                 format_mean("t_z mean", finite_mean(series["trans_z"]), "m"),
+             ]),
+            (axes[4, 0], series["left_fx"], "Left fx / Right fx", "px",
+             [(series["right_fx"], "right fx", "#2ca02c")],
+             [
+                 format_mean("left fx mean", finite_mean(series["left_fx"]), "px"),
+                 format_mean("right fx mean", finite_mean(series["right_fx"]), "px"),
+             ]),
+            (axes[4, 1], series["left_cx"], "Left cx / Right cx", "px",
+             [(series["right_cx"], "right cx", "#2ca02c")],
+             [
+                 format_mean("left cx mean", finite_mean(series["left_cx"]), "px"),
+                 format_mean("right cx mean", finite_mean(series["right_cx"]), "px"),
+             ]),
+        ]
 
     for ax, vals, ylabel, unit, extra, mean_lines in panels:
         _draw_panel(ax, idx, vals, global_mask, ylabel, unit, extra_lines=extra, mean_lines=mean_lines)
