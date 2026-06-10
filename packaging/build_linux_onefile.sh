@@ -31,5 +31,22 @@ fi
 
 python3 -m PyInstaller --clean --noconfirm packaging/mycalib_linux_onefile.spec
 
+release_name="mycalib-linux-x86_64-cpu"
+release_dir="release"
+
+rm -rf "$release_dir"
+mkdir -p "$release_dir"
+cp dist/mycalib "$release_dir/$release_name"
+chmod +x "$release_dir/$release_name"
+
+if [[ -d packaging/examples ]]; then
+  cp -R packaging/examples "$release_dir/examples"
+  find "$release_dir/examples" -type f -name "*.sh" -exec chmod +x {} +
+fi
+
+tar -C "$release_dir" -czf "$release_dir/$release_name.tar.gz" "$release_name" examples
+sha256sum "$release_dir/$release_name" "$release_dir/$release_name.tar.gz" > "$release_dir/SHA256SUMS"
+
 echo
 echo "Built: dist/mycalib"
+echo "Release package: $release_dir/$release_name.tar.gz"

@@ -2,6 +2,7 @@
 build/
 */build/
 /dist/
+/release/
 
 # CMake
 CMakeCache.txt
