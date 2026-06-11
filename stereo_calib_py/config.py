@@ -30,6 +30,7 @@ class PipelineConfig:
     frame_poses_file: str | None = None
     left_img_dir: str | None = None
     right_img_dir: str | None = None
+    window_size: int | None = None
     pixel_tag: str = "3px"
     output_timestamp: str | None = None
     result_dir: str | None = None

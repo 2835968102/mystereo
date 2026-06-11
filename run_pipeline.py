@@ -64,6 +64,8 @@ def parse_args():
                    help="KITTI RAW sequence 左目图像目录")
     p.add_argument("--right_img_dir", default=None,
                    help="KITTI RAW sequence 右目图像目录")
+    p.add_argument("--window_size", type=int, default=None,
+                   help="KITTI RAW sequence 仅使用最近 N 对完整双目帧")
     p.add_argument("--pixel_tag", default="3px",
                    help="输出结果文件名中的像素阈值标签（如 3px、2px、1px）")
     p.add_argument("--output_timestamp", default=None,

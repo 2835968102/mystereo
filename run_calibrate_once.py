@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work_dir", default=None, help="Directory for intermediate matches and BA files")
     parser.add_argument("--keep_work_dir", action="store_true", help="Keep intermediate files after success")
     parser.add_argument("--result_prefix", default="calibration", help="Intermediate file prefix")
+    parser.add_argument("--window_size", type=int, default=None, help="Use only the most recent N complete stereo frames")
 
     sp = parser.add_argument_group("SuperPoint CPU matching")
     sp.add_argument("--nn_thresh", type=float, default=0.7, help="Descriptor L2 distance threshold")
@@ -113,6 +114,7 @@ def _build_config(args: argparse.Namespace, work_dir: Path) -> PipelineConfig:
         gt_param_file=_resolve_optional_path(args.gt_param_file),
         left_img_dir=_resolve_path(args.left_img_dir),
         right_img_dir=_resolve_path(args.right_img_dir),
+        window_size=args.window_size,
         result_dir=str(work_dir),
         output_timestamp="run",
         match_output_tag="run",

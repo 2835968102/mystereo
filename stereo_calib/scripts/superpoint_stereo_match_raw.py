@@ -280,6 +280,8 @@ def parse_args():
                    help='NMS suppression radius in pixels (default: 4)')
     p.add_argument('--disable_ratio_margin', action='store_true',
                    help='Disable Lowe ratio / margin filtering and use mutual nearest + nn_thresh only')
+    p.add_argument('--window_size', type=int, default=None,
+                   help='Use only the most recent N complete stereo frames from the input directories')
     p.add_argument('--cuda', action='store_true',
                    help='Use CUDA if available')
     return p.parse_args()
@@ -333,6 +335,24 @@ def build_sparse_kitti_pairs(left_records, right_records):
     return pair_records
 
 
+def select_window_records(left_records, right_records, window_size):
+    if window_size is None:
+        return left_records, right_records, None
+    if window_size < 1:
+        raise ValueError(f'window_size must be >= 1, got: {window_size}')
+
+    left_by_frame = {record['frame_id']: record for record in left_records}
+    right_by_frame = {record['frame_id']: record for record in right_records}
+    common_frame_ids = sorted(set(left_by_frame) & set(right_by_frame))
+    if not common_frame_ids:
+        raise ValueError('No complete stereo frames found between left_img_dir and right_img_dir')
+
+    selected_frame_ids = common_frame_ids[-window_size:]
+    filtered_left = [left_by_frame[frame_id] for frame_id in selected_frame_ids]
+    filtered_right = [right_by_frame[frame_id] for frame_id in selected_frame_ids]
+    return filtered_left, filtered_right, selected_frame_ids
+
+
 def main():
     args = parse_args()
 
@@ -354,6 +374,21 @@ def main():
         right_records = build_image_records(args.right_img_dir, '右图像根', False)
     except FileNotFoundError as exc:
         sys.exit(str(exc))
+
+    try:
+        left_records, right_records, selected_frame_ids = select_window_records(
+            left_records,
+            right_records,
+            args.window_size,
+        )
+    except ValueError as exc:
+        sys.exit(str(exc))
+
+    if selected_frame_ids is not None:
+        print(
+            f'Window mode: using {len(selected_frame_ids)} complete stereo frame(s) '
+            f'from {selected_frame_ids[0]} to {selected_frame_ids[-1]}.'
+        )
 
     image_records = left_records + right_records
     if len(image_records) < 2:

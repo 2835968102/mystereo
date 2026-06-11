@@ -86,6 +86,8 @@ def run_match_if_needed(config: PipelineConfig, paths: PipelinePaths) -> None:
                 "--nms_dist",
                 str(config.nms_dist),
             ]
+            if config.window_size is not None:
+                cmd += ["--window_size", str(config.window_size)]
         else:
             # Project 和 KITTI 单帧复用 standard matcher，输入由 dataset_mode 解释。
             cmd = [

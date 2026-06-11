@@ -7,6 +7,7 @@ PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LEFT_IMG_DIR="${LEFT_IMG_DIR:-/media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0048_sync/image_00/data}"
 RIGHT_IMG_DIR="${RIGHT_IMG_DIR:-/media/hello/新加卷/pmldata/data/KITTI/RAW/City/2011_09_26/2011_09_26_drive_0048_sync/image_01/data}"
 OUTPUT_DIR="${OUTPUT_DIR:-$PACKAGE_DIR/results}"
+WINDOW_SIZE="${WINDOW_SIZE:-50}"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -18,6 +19,7 @@ mkdir -p "$OUTPUT_DIR"
   --output_json "$OUTPUT_DIR/kitti_city_0048_calibration_result_gt.json" \
   --output_plot "$OUTPUT_DIR/kitti_city_0048_ba_history_gt.png" \
   --result_prefix kitti_city_2011_09_26_drive_0048_sync \
+  --window_size "$WINDOW_SIZE" \
   --conf_thresh 0.25 \
   --nms_dist 20 \
   --nn_thresh 1 \

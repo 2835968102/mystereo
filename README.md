@@ -268,19 +268,86 @@ packaging/build_linux_onefile.sh
 
 ```text
 dist/mycalib
+release/mycalib-linux-x86_64-cpu.tar.gz
 ```
 
-运行一次标定并只输出最终 JSON：
+其中：
+
+- `dist/mycalib` 是仓库内直接运行的单文件可执行程序。
+- `release/mycalib-linux-x86_64-cpu.tar.gz` 是对外发布用压缩包，包含可执行程序和示例脚本。
+
+在源码目录里直接运行一次标定并只输出最终 JSON：
 
 ```bash
 ./dist/mycalib \
   --left_img_dir /data/seq01/left \
   --right_img_dir /data/seq01/right \
+  --window_size 50 \
   --init_param_file /data/seq01/init_camera.txt \
   --output_json /data/seq01/calibration_result.json
 ```
 
-可选传入 `--work_dir` 保留中间 matches 和 BA 文件；未传时中间文件使用临时目录。`--gt_param_file` 和 `--frame_poses_file` 仍可按需传入。
+`--window_size 50` 表示只使用左右目目录中最近 `50` 对完整双目帧；如果目录里持续追加新图，每次重跑都会自动滑动到最新窗口。可选传入 `--work_dir` 保留中间 matches 和 BA 文件；未传时中间文件使用临时目录。`--gt_param_file` 和 `--frame_poses_file` 仍可按需传入。
+
+如果直接下载 GitHub Release，可下载：
+
+```text
+mycalib-linux-x86_64-cpu.tar.gz
+SHA256SUMS
+```
+
+下载后解压：
+
+```bash
+tar -xzf mycalib-linux-x86_64-cpu.tar.gz
+chmod +x mycalib-linux-x86_64-cpu examples/run_kitti_city_0048_gt.sh
+```
+
+发布包内容：
+
+```text
+mycalib-linux-x86_64-cpu
+examples/run_kitti_city_0048_gt.sh
+examples/kitti_raw_00_01_init_params.txt
+examples/kitti_raw_00_01_gt_camera.json
+```
+
+其中 `examples/run_kitti_city_0048_gt.sh` 已经内置一条 KITTI RAW City `2011_09_26_drive_0048_sync` 的 CPU 示例命令，默认输出到当前解压目录下的 `results/`：
+
+```bash
+./examples/run_kitti_city_0048_gt.sh
+```
+
+该示例脚本默认使用最近 `50` 对完整双目帧；可通过环境变量覆盖：
+
+```bash
+WINDOW_SIZE=30 ./examples/run_kitti_city_0048_gt.sh
+```
+
+如果本机 KITTI 数据路径不同，可在运行前覆盖左右目目录：
+
+```bash
+LEFT_IMG_DIR=/path/to/image_00/data \
+RIGHT_IMG_DIR=/path/to/image_01/data \
+./examples/run_kitti_city_0048_gt.sh
+```
+
+也可以直接调用发布包里的可执行程序：
+
+```bash
+./mycalib-linux-x86_64-cpu \
+  --left_img_dir /data/seq01/left \
+  --right_img_dir /data/seq01/right \
+  --window_size 50 \
+  --init_param_file /data/seq01/init_camera.txt \
+  --output_json /data/seq01/calibration_result.json
+```
+
+可选校验：
+
+```bash
+sha256sum -c SHA256SUMS
+```
 
 ## 检查
 
