@@ -349,6 +349,54 @@ RIGHT_IMG_DIR=/path/to/image_01/data \
 sha256sum -c SHA256SUMS
 ```
 
+## Docker 发布
+
+如果你希望避免目标机器上的 `glibc` / Python 环境兼容问题，更推荐直接发布 Docker 镜像。镜像入口同样是 `run_calibrate_once.py`，参数用法和 `dist/mycalib` 基本一致。
+
+构建镜像：
+
+```bash
+packaging/build_docker_image.sh
+```
+
+默认镜像名是：
+
+```text
+mycalib:docker
+```
+
+运行时把数据目录挂进去，例如：
+
+```bash
+docker run --rm \
+  -v /data/kitti:/data/kitti \
+  -v /data/output:/data/output \
+  mycalib:docker \
+  --left_img_dir /data/kitti/image_00/data \
+  --right_img_dir /data/kitti/image_01/data \
+  --window_size 50 \
+  --init_param_file /data/kitti/init_camera.txt \
+  --output_json /data/output/calibration_result.json
+```
+
+如果需要 GT 或输出收敛曲线，也可以继续追加：
+
+```bash
+docker run --rm \
+  -v /data/kitti:/data/kitti \
+  -v /data/output:/data/output \
+  mycalib:docker \
+  --left_img_dir /data/kitti/image_00/data \
+  --right_img_dir /data/kitti/image_01/data \
+  --window_size 50 \
+  --init_param_file /data/kitti/init_camera.txt \
+  --gt_param_file /data/kitti/gt_camera.json \
+  --output_json /data/output/calibration_result.json \
+  --output_plot /data/output/ba_history.png
+```
+
+这种方式的优点是：目标机器只需要 Docker，不需要单独安装 conda、PyTorch、OpenCV 或处理 `glibc` 版本兼容。
+
 ## 检查
 
 改动入口、配置或 C++ 后，可以先跑轻量检查：

@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "core/ceres_compat.h"
 #include "stereo_factors.h"
 
 namespace stereocalib {
@@ -176,14 +177,12 @@ BAResult BundleAdjustmentService::RunBundleAdjustment(
   };
 
   if (!config.fix_camera_params && problem.HasParameterBlock(state.intrinsics_left.data())) {
-    problem.SetManifold(state.intrinsics_left.data(),
-                        new ceres::SubsetManifold(9, fixed_intrinsic_indices));
+    SetSubsetParameterBlock(problem, state.intrinsics_left.data(), 9, fixed_intrinsic_indices);
     set_intrinsics_bounds(state.intrinsics_left.data(),
                           state.init_intrinsics_left[0], state.init_intrinsics_left[1]);
   }
   if (!config.fix_camera_params && problem.HasParameterBlock(state.intrinsics_right.data())) {
-    problem.SetManifold(state.intrinsics_right.data(),
-                        new ceres::SubsetManifold(9, fixed_intrinsic_indices));
+    SetSubsetParameterBlock(problem, state.intrinsics_right.data(), 9, fixed_intrinsic_indices);
     set_intrinsics_bounds(state.intrinsics_right.data(),
                           state.init_intrinsics_right[0], state.init_intrinsics_right[1]);
   }

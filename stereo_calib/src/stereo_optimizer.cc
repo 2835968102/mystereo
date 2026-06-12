@@ -4,6 +4,7 @@
 #include <iostream>
 #include <opencv2/calib3d.hpp>
 
+#include "core/ceres_compat.h"
 #include "stereo_eval.h"
 #include "stereo_factors.h"
 
@@ -122,12 +123,10 @@ void StereoOptimizer::AddReprojConstraints()
   // enough baseline / known image centres.
   const vector<int> kFixedIntrinsicIndices = {2, 3};  // cx, cy
   if (problem_.HasParameterBlock(intrinsics_left_.data())) {
-    problem_.SetManifold(intrinsics_left_.data(),
-                         new ceres::SubsetManifold(9, kFixedIntrinsicIndices));
+    SetSubsetParameterBlock(problem_, intrinsics_left_.data(), 9, kFixedIntrinsicIndices);
   }
   if (problem_.HasParameterBlock(intrinsics_right_.data())) {
-    problem_.SetManifold(intrinsics_right_.data(),
-                         new ceres::SubsetManifold(9, kFixedIntrinsicIndices));
+    SetSubsetParameterBlock(problem_, intrinsics_right_.data(), 9, kFixedIntrinsicIndices);
   }
 }
 
