@@ -139,7 +139,7 @@ bool StereoOptimizer::Solve(StereoCamera& camera)
 
   ceres::Solver::Options options;
   options.max_num_iterations         = max_iter_;
-  options.linear_solver_type         = ceres::DENSE_QR;  // efficient for BA
+  options.linear_solver_type         = ceres::SPARSE_SCHUR;  // efficient for BA
   options.minimizer_progress_to_stdout = true;
   options.num_threads                = 24;
 

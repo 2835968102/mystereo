@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(StereoCalib)
+include(CTest)
 
 # ── Build settings ────────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 11)
@@ -68,3 +69,7 @@ target_link_libraries(run_offline_stereo_ba stereo_core ${EXTERNAL_LIBRARIES})
 # KITTI-specific offline BA executable
 add_executable(run_offline_stereo_ba_kitti src/run_offline_stereo_ba_kitti.cc)
 target_link_libraries(run_offline_stereo_ba_kitti stereo_core ${EXTERNAL_LIBRARIES})
+
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
