@@ -47,3 +47,6 @@ __pycache__/
 stereo_calib/分数影响/
 stereo_calib/匹配点影响/
 stereo_calib/BA优化后外点去除/
+
+# release
+release/
